@@ -1,0 +1,43 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+.next/
+.wrangler/
+.sites/
+.sites-runtime/
+*.tsbuildinfo
+
+# Real configuration and credentials
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Private data, backups, and local release evidence
+data/
+backups/
+QAArtifacts/
+.release-prep/
+.*-lock.json
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.bak
+*.backup
+playwright-report/
+test-results/
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+__pycache__/
+*.pyc

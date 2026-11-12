@@ -1,0 +1,88 @@
+/* Keep native date pickers, but render stable text outside their platform shadow UI. */
+.garage-stage,.garage-custom-preview{position:relative}
+.garage-loading{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:12px;text-align:center;font-size:12px;line-height:1.5}
+.garage-loading>button{min-width:44px;min-height:44px;padding:6px 12px;border-radius:9px;background:var(--surface-2);color:var(--text)}
+@media(max-width:600px){.garage-hero{min-height:430px}.garage-stage{height:430px}.garage-canvas-hero{--garage-framing-height:350px;--garage-protect-top:154px;--garage-protect-bottom:108px}}
+/* Text remains light; the actual button box gives a finger enough room. */
+.main .text-button,.main .back-button,.demo-strip>button,.update-strip>button{min-width:44px;min-height:44px}
+.demo-strip,.update-strip{padding-top:2px;padding-bottom:2px}
+.garage-view-button{position:relative;isolation:isolate;width:44px;height:44px;border:0;background:transparent;line-height:44px;backdrop-filter:none}
+.garage-view-button:before{content:'';position:absolute;inset:6px;z-index:-1;border:1px solid var(--garage-control-border,#ffffff13);border-radius:50%;background:var(--garage-control-bg,#15171a99);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.garage-view-button:hover{background:transparent}.garage-view-button:hover:before{background:var(--surface-2)}
+.quick-status-heading{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11px}.quick-status-heading>.text-button{margin-left:auto;font-size:11px}.quick-scroll-hint{display:none}
+.range-heading .eyebrow{font-size:11px;color:var(--garage-secondary,#b4c0c5);letter-spacing:.6px}.garage-hero-topright .text-button{font-size:12px;color:var(--garage-control-text,#c0cbce)}
+.battery-indicator{font-size:12px;color:var(--garage-secondary,#b4c0c5)}.hero-hint,.read-time{font-size:11px;color:var(--garage-muted,#a7b5ba)}.hero-bottom{gap:10px;flex-wrap:wrap}
+.quick-status strong{font-size:12px;color:var(--text)}.quick-status small{font-size:11px;line-height:1.4;color:var(--muted)}.quick-status button>span{color:var(--garage-secondary,#a7b5ba)}.quick-scroll-hint{color:var(--text)}
+.garage-header p{font-size:12px;line-height:1.5;color:var(--garage-secondary,#a7b5ba)}.paint-options span{font-size:11px;color:var(--text)}
+.demo-strip,.update-strip{font-size:11px;gap:10px}.demo-strip>span{min-width:0;line-height:1.5}.demo-strip>button{flex-shrink:0;font-size:11px}
+:root[data-theme=light] .demo-strip{background:#7352190d;border-color:#8061202b;color:#6e511c}:root[data-theme=light] .demo-strip button{color:#6e511c}
+:root[data-theme=light] .quick-status small{color:#50676b}
+@media(max-width:600px){.quick-scroll-hint{display:inline;font-size:11px}.quick-status{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 24px)/4);justify-content:start;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:8px}.quick-status>button{width:100%;min-width:0;min-height:76px;padding:8px 2px;scroll-snap-align:start}.quick-status small{white-space:normal;overflow-wrap:anywhere}}
+@media(max-width:350px){.hero-bottom .read-time{flex-basis:100%;text-align:right}}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important}
+.date-range{max-width:100%;padding:14px;margin-bottom:18px}
+.date-range .date-range-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px;min-width:0}
+.date-range .range-date-field{display:grid;gap:7px;min-width:0;max-width:100%}
+.date-input-shell{display:flex;align-items:center;justify-content:space-between;position:relative;min-width:0;height:46px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--text)}
+.date-visible-value{font-size:14px;line-height:1.2;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:0}
+.date-input-shell>svg{flex-shrink:0;color:var(--muted);margin-left:6px;pointer-events:none}
+.date-range .date-input-shell input[type=date]{position:absolute;inset:0;display:block;box-sizing:border-box;width:100%;max-width:100%;height:100%;min-width:0;min-height:0;opacity:0;padding:0;margin:0;border:0;appearance:none;-webkit-appearance:none;font-size:16px!important;cursor:pointer}
+.date-input-shell:focus-within{outline:2px solid var(--mint);outline-offset:3px}
+.date-range .date-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:8px}
+.date-range .date-shortcuts button{min-width:0;min-height:44px;padding:6px 2px;white-space:nowrap;font-size:12px}
+.date-shortcuts button[aria-pressed=true]{color:var(--mint);background:var(--mint-soft)}
+.date-range .date-range-summary{font-size:11px;line-height:1.5;margin:5px 0 0;color:var(--muted)}
+/* The paint is compact; buttons keep a 44 px touch box. */
+.playback-panel{padding-top:12px;width:100%;min-width:0}
+.playback-status{gap:8px;flex-wrap:wrap;align-items:baseline}
+.playback-status strong{font-size:15px}.playback-status>span{font-size:11px;white-space:nowrap}
+.playback-seek{margin-top:0}.playback-seek>input{height:44px;min-height:44px;min-width:0;width:100%}
+.playback-panel .playback-buttons{display:grid;grid-template-columns:44px 44px minmax(44px,1fr) 44px 56px;gap:0;align-items:center;min-width:0}
+.playback-panel .playback-buttons>button{display:flex;justify-content:center;align-items:center;min-width:44px;min-height:44px;width:100%;height:44px;padding:0;border:0;border-radius:10px;background:none;color:var(--text)}
+.playback-button-face{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--surface-2);color:var(--muted);pointer-events:none}
+.playback-button-face.main{width:auto;max-width:100%;min-width:44px;height:32px;gap:4px;padding:0 8px;border-radius:16px;background:var(--mint);color:#102820;font-size:12px;font-weight:600}
+.playback-button-face.skip{width:34px;border-radius:14px;gap:0}.playback-button-face small{font-size:10px}
+.playback-panel .playback-speed{display:grid;place-items:center;position:relative;min-width:0;min-height:44px}
+.playback-panel .playback-speed select{width:56px;max-width:56px;min-width:0;min-height:44px;padding:0 3px;border:0;background:transparent;appearance:none;-webkit-appearance:none;text-align:center;color:var(--muted);font-size:16px!important;cursor:pointer}
+.playback-telemetry{margin-top:8px;font-size:12px}.playback-telemetry strong{font-size:15px}
+.map-toolbar{margin:0 0 10px}.map-toolbar .segmented{min-width:0}
+.map-toolbar .segmented button{min-height:44px;padding:7px 14px}
+/* Full place names wrap inside the charge map instead of widening the viewport. */
+.history-map>.inline-actions{min-width:0;max-width:100%;align-items:stretch}
+.history-map>.inline-actions>.button{min-width:0;max-width:100%;min-height:44px;white-space:normal;overflow-wrap:anywhere;text-align:left;justify-content:flex-start}
+.history-map .map-charge-summary{min-width:0;max-width:100%;overflow-wrap:anywhere}.map-charge-summary>strong{display:block;line-height:1.5}
+.route-endpoint{min-width:21px;height:22px;line-height:19px;padding:0 4px;border-width:1px;font-size:10px;border-radius:11px;box-shadow:0 1px 4px #0004;pointer-events:none}
+.vehicle-map-marker{width:16px;height:16px;border-width:1px;box-shadow:0 0 4px #83ddb72b;pointer-events:none}.vehicle-map-marker span{width:7px;height:7px;border-width:1px}
+.map-recenter{right:5px;bottom:22px;width:44px;height:44px;background:transparent}.map-recenter:before{content:'';position:absolute;inset:7px;border-radius:8px;background:#18282ee6;z-index:-1}
+.map-attribution{right:8px;bottom:5px;padding:1px 4px;border-radius:3px;background:#101619d9;color:#b7c4cc;font-size:10px;line-height:1.4;pointer-events:none}
+.amap-logo,.amap-copyright{opacity:1}
+.advanced-details>summary{font-size:13px;color:var(--muted);min-height:24px}.advanced-details:not([open]){padding-top:14px;padding-bottom:14px}.advanced-details[open]>summary{margin-bottom:14px}
+.advanced-details p{font-size:12px;line-height:1.7;color:var(--muted);margin-top:10px}.advanced-details .interpolation-control{margin-top:16px}
+.chart-estimate-note{font-size:11px;line-height:1.6;margin:8px 0}.energy-method{margin-top:12px}
+/* Lightweight charging feedback, driven only by reported state and power. */
+.active-charge-card{gap:12px;flex-wrap:wrap}.charge-card-copy{min-width:0;flex:1}.active-charge-card h2{font-size:32px;margin:8px 0}.active-charge-card p{font-size:11px;line-height:1.6}
+.charge-animation{position:relative;display:grid;place-items:center;flex-shrink:0;width:60px;height:60px;color:var(--muted);animation:none}
+.charge-halo{position:absolute;inset:4px;border:1px solid currentColor;border-radius:50%;opacity:.18}.charge-animation>svg{position:relative;z-index:1}
+.charge-flow{position:absolute;inset:auto 12px 2px;display:flex;justify-content:space-around}.charge-flow i{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.25}
+.charge-animation.is-charging{color:var(--mint)}.is-charging .charge-halo{animation:charge-breathe 2s ease-in-out infinite}.is-charging .charge-flow i{animation:charge-flow 1.2s ease-in-out infinite}.is-charging .charge-flow i:nth-child(2){animation-delay:.2s}.is-charging .charge-flow i:nth-child(3){animation-delay:.4s}
+.live-charge-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.live-charge-top .charge-animation{margin-top:-8px;margin-bottom:-8px}
+.charging-progress{position:relative;height:8px}.charging-progress i{position:relative;overflow:hidden}.is-charging .charging-progress i:after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,#fff8,transparent);transform:translateX(-100%);animation:charge-sweep 2.6s linear infinite}
+@keyframes charge-breathe{50%{opacity:.6;transform:scale(1.08)}}@keyframes charge-flow{50%{opacity:1;transform:translateY(-3px)}}@keyframes charge-sweep{to{transform:translateX(100%)}}
+@media(max-width:600px){
+ :root{--nav-height:62px;--nav-offset:12px;--safe-bottom:env(safe-area-inset-bottom,0px);--nav-clearance:calc(var(--nav-height) + var(--nav-offset) + var(--safe-bottom) + 32px)}
+ html{scroll-padding-bottom:var(--nav-clearance)}
+ .main{padding-bottom:var(--nav-clearance)}
+ .page-stack,.day-group,.record-list,.form-row,.form-row>label{min-width:0;max-width:100%}
+ .bottom-nav-dock{position:fixed;inset:auto 0 0;z-index:20;padding:10px 16px calc(var(--nav-offset) + var(--safe-bottom));background:var(--bg);pointer-events:none}
+ /* One moving background shares the exact four-column button geometry. */
+ .bottom-nav-dock .bottom-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:relative;inset:auto;height:var(--nav-height);width:100%;padding:6px;pointer-events:auto;-webkit-backdrop-filter:none;backdrop-filter:none}
+ .bottom-nav>button{width:100%;min-width:0;border-radius:17px}.bottom-nav>button.active{background:transparent}
+ .load-more{padding-bottom:6px}.main button,.main input,.main select,.main textarea{scroll-margin-bottom:var(--nav-clearance)}
+ .record-copy>strong,.detail-title h2{overflow-wrap:anywhere}.date-range{padding:12px}
+ .active-charge-card>.text-button{min-height:44px}.active-charge-card .charge-animation{width:52px;height:52px}
+}
+@media(max-width:350px){.date-input-shell{padding:0 7px}.date-input-shell>svg{width:13px;margin-left:3px}.playback-main-text{display:none}.playback-button-face.main{padding:0 6px}.playback-status>span{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.charge-animation *,.is-charging .charging-progress i:after{animation:none!important;transform:none!important}}
+
+/* Keep coverage available on demand and privacy guidance readable on narrow screens. */
+.statistics-coverage{display:grid;gap:12px;margin:0}.statistics-coverage>div{display:flex;justify-content:space-between;gap:16px;font-size:12px;line-height:1.6}.statistics-coverage dt{color:var(--muted)}.statistics-coverage dd{margin:0;text-align:right}.toggle>span{min-width:0}.toggle .privacy-description{font-size:12px;line-height:1.7}.privacy-description>span{display:block}

@@ -1,0 +1,8 @@
+.garage-charge-status {
+  position: absolute; top: 16px; left: 16px; display: flex; align-items: center; gap: 7px;
+  padding: 7px 11px; border-radius: 20px; color: #a0ebc9; background: rgba(19, 43, 35, .84);
+  font-size: 12px; font-weight: 550; pointer-events: none;
+}
+.garage-charge-status > span {font-size: 18px; line-height: 1;}
+:root[data-theme="light"] .garage-charge-status {color: #18694c; background: rgba(230, 246, 239, .94);}
+.garage-connected:not(.garage-canvas-hero) .garage-view-controls {top: 16px; bottom: auto;}
