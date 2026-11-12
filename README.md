@@ -24,7 +24,7 @@ TeslaMate 可视化网页 · 3D Model Y 车库 · 个人自托管 PWA
 
 ## 1. 功能
 
-以下截图均来自 ModelYMate 的**虚构演示数据**。窄屏截图用于展示手机布局，充电图为桌面视图；不代表真实车辆记录或物理手机验收。
+以下截图统一使用**深色模式**，均来自 ModelYMate 的**虚构演示数据**。窄屏截图用于展示手机布局，充电图为桌面视图；不代表真实车辆记录或物理手机验收。
 
 <p align="center">
 <a href="docs/screenshots/screenshot-dashboard.png"><img src="docs/screenshots/screenshot-dashboard.png" width="280" alt="车辆状态与 3D 车库 · ModelYMate 虚构演示"></a>
@@ -52,8 +52,8 @@ TeslaMate 可视化网页 · 3D Model Y 车库 · 个人自托管 PWA
 </p>
 
 <p align="center">
-<a href="docs/screenshots/screenshot-history-map.png"><img src="docs/screenshots/screenshot-history-map.png" width="280" alt="行程足迹与充电地图 · ModelYMate 虚构演示"></a>
-<br><b>行程与充电地图</b> — 在地图上浏览历史足迹与充电点，进入行程详情回放路线和采样曲线。
+<a href="docs/screenshots/screenshot-history-map.png"><img src="docs/screenshots/screenshot-history-map.png" width="280" alt="行程足迹与充电地图 · 虚构演示与本地模拟底图"></a>
+<br><b>行程与充电地图</b> — 在地图上浏览历史足迹与充电点，进入行程详情回放路线和采样曲线。图示使用本地模拟底图；实际地图由配置后的高德地图提供。
 </p>
 
 <p align="center">
@@ -71,6 +71,7 @@ TeslaMate 可视化网页 · 3D Model Y 车库 · 个人自托管 PWA
 ## 2. 系统架构
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': {'background': '#0d1117', 'primaryColor': '#142824', 'primaryTextColor': '#e6edf3', 'primaryBorderColor': '#5ab9a2', 'lineColor': '#8b9cae', 'edgeLabelBackground': '#161b22'}}}%%
 flowchart TB
     TM["TeslaMate · 车辆历史"] --> API["TeslaMateApi"]
     API -->|"只读 GET 白名单"| NODE["Node.js 同源服务"]
@@ -80,8 +81,8 @@ flowchart TB
     WEB -->|"加载地图 JS SDK"| AMAP["高德地图 · 可选"]
     NODE <-->|"已认证的地图代理"| AMAP
 
-    classDef app fill:#e9f5ef,stroke:#168c70,color:#173b32;
-    classDef external fill:#f5f6f8,stroke:#9ba8b7,color:#293241;
+    classDef app fill:#142824,stroke:#5ab9a2,color:#e6edf3;
+    classDef external fill:#161b22,stroke:#637587,color:#e6edf3;
     class NODE,WEB,LOCAL,BACKUP app;
     class TM,API,AMAP external;
 ```
