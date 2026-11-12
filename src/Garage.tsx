@@ -153,6 +153,9 @@ class GarageEngine {
   private ready = false;
   private dirty = true;
   private shadowDirty = true;
+  private inputFitPending = false;
+  private renderWidth = 0;
+  private renderHeight = 0;
   private lastActive = false;
   private pageHidden = document.hidden;
   private inViewport = true;
@@ -679,7 +682,9 @@ class GarageEngine {
       attribute.needsUpdate = true; this.dirty = true; animating = true;
     }
     if (this.charger?.update(delta, this.reduceMotion.matches)) {this.dirty = true; animating = true;}
-    if (hingesChanged && !this.entryRunning) this.fitHeroCamera();
+    // Pointer events can arrive more often than display frames. Accumulate the
+    // pose immediately, then fit it together with moving hinges before drawing.
+    if ((hingesChanged || this.inputFitPending) && !this.entryRunning) this.fitHeroCamera();
     if (this.dirty) {
       const started = performance.now();
       this.renderer.shadowMap.needsUpdate = this.shadowDirty;
@@ -700,8 +705,13 @@ class GarageEngine {
 
   private resize = () => {
     if (this.disposed) return;
-    const width = this.host.clientWidth || 400, height = this.host.clientHeight || 320;
-    this.renderer.setSize(width, height, false);
+    const width = this.host.clientWidth || this.renderWidth || 400, height = this.host.clientHeight || this.renderHeight || 320;
+    // setSize rewrites canvas.width/height even when unchanged. Preserve its
+    // drawing buffer during zoom, page returns and duplicate resize callbacks.
+    if (width !== this.renderWidth || height !== this.renderHeight) {
+      this.renderer.setSize(width, height, false);
+      this.renderWidth = width; this.renderHeight = height;
+    }
     const aspect = width / height;
     this.camera.aspect = aspect;
     const style = this.props().presentation === 'hero' ? getComputedStyle(this.host) : null;
@@ -746,6 +756,7 @@ class GarageEngine {
 
   private fitHeroCamera() {
     if (!this.model || !this.lastActive || this.entryRunning) return;
+    this.inputFitPending = false;
     this.collectFitPoints(); this.car.updateWorldMatrix(true, true); this.positionCamera();
     const width = this.host.clientWidth, height = this.host.clientHeight;
     if (!width || !height) return;
@@ -784,11 +795,15 @@ class GarageEngine {
   }
 
   private cancelEntryForInteraction() {this.entryRequested = false; this.settleEntry(true);}
-  rotate(amount: number) {
-    this.cancelEntryForInteraction(); this.car.rotation.y += amount; this.fitHeroCamera(); this.shadowDirty = true; this.dirty = true; this.refreshSchedule();
+  rotate(amount: number, deferFit = false) {
+    this.cancelEntryForInteraction(); this.car.rotation.y += amount;
+    if (deferFit) this.inputFitPending = true; else this.fitHeroCamera();
+    this.shadowDirty = true; this.dirty = true; this.refreshSchedule();
   }
-  zoom(amount: number) {
-    this.cancelEntryForInteraction(); this.zoomDistance = THREE.MathUtils.clamp(this.zoomDistance * amount, 5.8, Math.max(11.5, this.minimumZoomDistance + 1.5)); this.resize();
+  zoom(amount: number, deferFit = false) {
+    this.cancelEntryForInteraction(); this.zoomDistance = THREE.MathUtils.clamp(this.zoomDistance * amount, 5.8, Math.max(11.5, this.minimumZoomDistance + 1.5));
+    if (deferFit) this.inputFitPending = true; else this.fitHeroCamera();
+    this.dirty = true; this.refreshSchedule();
   }
   private pointerDown = (event: PointerEvent) => {
     if (event.button !== 0) return;
@@ -806,10 +821,10 @@ class GarageEngine {
     this.pointerPositions.set(event.pointerId, {...old, x: event.clientX, y: event.clientY});
     if (this.pointerPositions.size === 2) {
       const distance = this.pointerDistance();
-      if (distance > 0 && this.pinchDistance > 0) this.zoom(this.pinchDistance / distance);
+      if (distance > 0 && this.pinchDistance > 0) this.zoom(this.pinchDistance / distance, true);
       this.pinchDistance = distance; event.preventDefault();
     } else if (Math.abs(event.clientX - old.startX) > Math.abs(event.clientY - old.startY) && Math.abs(event.clientX - old.startX) > 4) {
-      this.rotate(deltaX * .008); event.preventDefault();
+      this.rotate(deltaX * .008, true); event.preventDefault();
     }
   };
   private pointerUp = (event: PointerEvent) => {
@@ -888,6 +903,7 @@ class GarageEngine {
   dispose() {
     if (this.disposed) return;
     this.disposed = true; this.preparationVersion++; this.abort.abort(); if (this.raf) cancelAnimationFrame(this.raf);
+    this.inputFitPending = false;
     window.clearTimeout(this.chargingTimer);
     this.resizeObserver.disconnect(); this.visibilityObserver.disconnect(); this.themeObserver.disconnect();
     document.removeEventListener('visibilitychange', this.visibilityChanged);

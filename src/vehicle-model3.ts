@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type {PreparedVehicle, VehicleAudit, HingeAudit, WheelAudit} from './vehicle-types';
+import {createVehicleYield} from './vehicle-yield';
 
 type Model3ID = 'model3-2018' | 'model3-2024';
 type Part = 'body' | 'driverFront' | 'passengerFront' | 'driverRear' | 'passengerRear' | 'frunk' | 'trunk' | 'chargePort' | 'wheelFL' | 'wheelFR' | 'wheelRL' | 'wheelRR';
@@ -8,46 +9,115 @@ type Island = {indices: number[]; bounds: THREE.Box3};
 const wheelParts: Part[] = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
 const panelParts: Part[] = ['driverFront', 'passengerFront', 'driverRear', 'passengerRear', 'frunk', 'trunk', 'chargePort'];
 const normal = new THREE.Vector3();
+type PreparationWork = {
+  pause: () => Promise<void>;
+  geometry: (value?: THREE.BufferGeometry) => THREE.BufferGeometry;
+  dispose: (value: THREE.BufferGeometry) => void;
+};
+
+/** Same bounds calculation as Three, with checkpoints between vertex batches. */
+async function finishBounds(geometry: THREE.BufferGeometry, work: PreparationWork, box = true, sphere = true) {
+  if (!box && !sphere) return;
+  if (Object.keys(geometry.morphAttributes).length) {
+    if (box) geometry.computeBoundingBox();
+    if (sphere) geometry.computeBoundingSphere();
+    await work.pause(); return;
+  }
+  const positions = geometry.attributes.position, bounds = new THREE.Box3(), point = new THREE.Vector3();
+  for (let start = 0; start < positions.count; start += 2048) {
+    for (let i = start, end = Math.min(start + 2048, positions.count); i < end; i++) bounds.expandByPoint(point.fromBufferAttribute(positions, i));
+    await work.pause();
+  }
+  if (box) geometry.boundingBox = bounds;
+  if (sphere) {
+    const result = geometry.boundingSphere ?? new THREE.Sphere(); bounds.getCenter(result.center);
+    let radiusSquared = 0;
+    for (let start = 0; start < positions.count; start += 2048) {
+      for (let i = start, end = Math.min(start + 2048, positions.count); i < end; i++) {
+        point.fromBufferAttribute(positions, i); radiusSquared = Math.max(radiusSquared, result.center.distanceToSquared(point));
+      }
+      await work.pause();
+    }
+    result.radius = Math.sqrt(radiusSquared); geometry.boundingSphere = result;
+  }
+}
+
+/** Preserve Three's per-vertex math and attribute writes while allowing input between batches. */
+async function transformGeometry(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4, work: PreparationWork) {
+  const point = new THREE.Vector3(), normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
+  for (const name of ['position', 'normal', 'tangent']) {
+    const attribute = geometry.getAttribute(name); if (!attribute) continue;
+    for (let start = 0; start < attribute.count; start += 2048) {
+      for (let i = start, end = Math.min(start + 2048, attribute.count); i < end; i++) {
+        point.fromBufferAttribute(attribute, i);
+        if (name === 'position') point.applyMatrix4(matrix);
+        else if (name === 'normal') point.applyNormalMatrix(normalMatrix);
+        else point.transformDirection(matrix);
+        attribute.setXYZ(i, point.x, point.y, point.z);
+      }
+      await work.pause();
+    }
+    attribute.needsUpdate = true;
+  }
+  await finishBounds(geometry, work, geometry.boundingBox !== null, geometry.boundingSphere !== null);
+}
 
 /** Compact an index selection without discarding normals, UVs, colors or tangents. */
-function selectedGeometry(source: THREE.BufferGeometry, selected: number[]) {
+async function selectedGeometry(source: THREE.BufferGeometry, selected: number[], work: PreparationWork) {
   const indices: number[] = [], originals: number[] = [], remap = new Map<number, number>();
-  for (const old of selected) {
-    let next = remap.get(old);
-    if (next === undefined) {next = originals.length; remap.set(old, next); originals.push(old);}
-    indices.push(next);
+  for (let start = 0; start < selected.length; start += 2048) {
+    for (let i = start, end = Math.min(start + 2048, selected.length); i < end; i++) {
+      const old = selected[i];
+      let next = remap.get(old);
+      if (next === undefined) {next = originals.length; remap.set(old, next); originals.push(old);}
+      indices.push(next);
+    }
+    await work.pause();
   }
-  const geometry = new THREE.BufferGeometry();
+  const geometry = work.geometry();
   for (const [name, attribute] of Object.entries(source.attributes)) {
     const values = new Float32Array(originals.length * attribute.itemSize);
-    for (let i = 0; i < originals.length; i++) for (let c = 0; c < attribute.itemSize; c++) values[i * attribute.itemSize + c] = attribute.getComponent(originals[i], c);
+    for (let start = 0; start < originals.length; start += 2048) {
+      for (let i = start, end = Math.min(start + 2048, originals.length); i < end; i++) for (let c = 0; c < attribute.itemSize; c++) values[i * attribute.itemSize + c] = attribute.getComponent(originals[i], c);
+      await work.pause();
+    }
     geometry.setAttribute(name, new THREE.BufferAttribute(values, attribute.itemSize));
   }
-  geometry.setIndex(indices); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+  geometry.setIndex(indices); await finishBounds(geometry, work);
   return geometry;
 }
 
 /** Keep authored index seams. Position welding would join the Highland trunk to its bumper. */
-function islands(geometry: THREE.BufferGeometry): Island[] {
+async function islands(geometry: THREE.BufferGeometry, work: PreparationWork): Promise<Island[]> {
   const positions = geometry.getAttribute('position'), index = geometry.index;
-  const parents = Int32Array.from({length: positions.count}, (_, i) => i);
+  const parents = new Int32Array(positions.count);
+  for (let start = 0; start < parents.length; start += 2048) {
+    for (let i = start, end = Math.min(start + 2048, parents.length); i < end; i++) parents[i] = i;
+    await work.pause();
+  }
   const find = (n: number): number => {while (parents[n] !== n) {parents[n] = parents[parents[n]]; n = parents[n];} return n;};
   const union = (a: number, b: number) => {a = find(a); b = find(b); if (a !== b) parents[b] = a;};
   const at = (i: number) => index ? index.getX(i) : i;
   const count = index?.count ?? positions.count;
-  for (let i = 0; i < count; i += 3) {union(at(i), at(i + 1)); union(at(i), at(i + 2));}
+  for (let start = 0; start < count; start += 384) {
+    for (let i = start, end = Math.min(start + 384, count); i < end; i += 3) {union(at(i), at(i + 1)); union(at(i), at(i + 2));}
+    await work.pause();
+  }
   const result = new Map<number, Island>();
   const point = new THREE.Vector3();
-  for (let i = 0; i < count; i += 3) {
-    const root = find(at(i)); let island = result.get(root);
-    if (!island) {island = {indices: [], bounds: new THREE.Box3()}; result.set(root, island);}
-    for (let k = 0; k < 3; k++) {const j = at(i + k); island.indices.push(j); island.bounds.expandByPoint(point.fromBufferAttribute(positions, j));}
+  for (let start = 0; start < count; start += 384) {
+    for (let i = start, end = Math.min(start + 384, count); i < end; i += 3) {
+      const root = find(at(i)); let island = result.get(root);
+      if (!island) {island = {indices: [], bounds: new THREE.Box3()}; result.set(root, island);}
+      for (let k = 0; k < 3; k++) {const j = at(i + k); island.indices.push(j); island.bounds.expandByPoint(point.fromBufferAttribute(positions, j));}
+    }
+    await work.pause();
   }
   return [...result.values()];
 }
 
 /** Split a lens on its charging-flap seam; all interpolated vertex attributes survive. */
-function clipFlap(source: THREE.BufferGeometry, planes: THREE.Plane[]): [THREE.BufferGeometry, THREE.BufferGeometry] {
+async function clipFlap(source: THREE.BufferGeometry, planes: THREE.Plane[], work: PreparationWork): Promise<[THREE.BufferGeometry, THREE.BufferGeometry]> {
   const names = Object.keys(source.attributes), attributes = names.map(n => source.getAttribute(n));
   const offsets: number[] = []; let stride = 0;
   for (const a of attributes) {offsets.push(stride); stride += a.itemSize;}
@@ -56,7 +126,9 @@ function clipFlap(source: THREE.BufferGeometry, planes: THREE.Plane[]): [THREE.B
   const read = (i: number) => attributes.flatMap(a => Array.from({length: a.itemSize}, (_, c) => a.getComponent(i, c)));
   const emit = (polygon: number[][], destination: number[]) => {for (let j = 1; j + 1 < polygon.length; j++) destination.push(...polygon[0], ...polygon[j], ...polygon[j + 1]);};
   const distance = (v: number[], plane: THREE.Plane) => plane.normal.x * v[p] + plane.normal.y * v[p + 1] + plane.normal.z * v[p + 2] + plane.constant;
-  for (let i = 0; i < (idx?.count ?? source.attributes.position.count); i += 3) {
+  const triangleIndexCount = idx?.count ?? source.attributes.position.count;
+  for (let start = 0; start < triangleIndexCount; start += 384) {
+   for (let i = start, end = Math.min(start + 384, triangleIndexCount); i < end; i += 3) {
     let polygon = [0, 1, 2].map(k => read(idx ? idx.getX(i + k) : i + k));
     for (const plane of planes) {
       if (!polygon.length) break;
@@ -73,18 +145,30 @@ function clipFlap(source: THREE.BufferGeometry, planes: THREE.Plane[]): [THREE.B
       polygon = keep;
     }
     if (polygon.length >= 3) emit(polygon, inside);
+   }
+   await work.pause();
   }
-  const build = (data: number[]) => {
-    const g = new THREE.BufferGeometry(), count = data.length / stride;
-    names.forEach((name, a) => {
+  const build = async (data: number[]) => {
+    const g = work.geometry(), count = data.length / stride;
+    for (let a = 0; a < names.length; a++) {
+      const name = names[a];
       const size = attributes[a].itemSize, values = new Float32Array(count * size);
-      for (let i = 0; i < count; i++) for (let k = 0; k < size; k++) values[i * size + k] = data[i * stride + offsets[a] + k];
+      for (let start = 0; start < count; start += 2048) {
+        for (let i = start, end = Math.min(start + 2048, count); i < end; i++) for (let k = 0; k < size; k++) values[i * size + k] = data[i * stride + offsets[a] + k];
+        await work.pause();
+      }
       g.setAttribute(name, new THREE.BufferAttribute(values, size));
-    });
-    if (g.getAttribute('normal')) g.normalizeNormals();
-    g.computeBoundingBox(); g.computeBoundingSphere(); return g;
+    }
+    const normals = g.getAttribute('normal'), point = new THREE.Vector3();
+    if (normals) for (let start = 0; start < normals.count; start += 2048) {
+      for (let i = start, end = Math.min(start + 2048, normals.count); i < end; i++) {
+        point.fromBufferAttribute(normals, i).normalize(); normals.setXYZ(i, point.x, point.y, point.z);
+      }
+      await work.pause();
+    }
+    await finishBounds(g, work); return g;
   };
-  return [build(inside), build(outside)];
+  return [await build(inside), await build(outside)];
 }
 
 function materialRole(original: THREE.Material, id: Model3ID) {
@@ -111,6 +195,7 @@ function prepareMaterials(original: THREE.Material, id: Model3ID, cache: Map<str
   const key = original.uuid;
   let result = cache.get(key); if (result) return result;
   result = original.clone(); result.userData = {...original.userData, originalName: original.name};
+  cache.set(key, result);
   result.name = materialRole(original, id);
   const m = result as THREE.MeshStandardMaterial;
   // The source's double-sided wheels otherwise shadow their own thin, adjoining faces.
@@ -170,7 +255,15 @@ function highlandPart(island: Island, originalMaterial: string, sourceName: stri
   return 'body';
 }
 
-export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicle {
+export async function prepareModel3(source: THREE.Group, id: Model3ID, signal?: AbortSignal): Promise<PreparedVehicle> {
+  const geometries = new Set<THREE.BufferGeometry>(), materials = new Map<string, THREE.Material>();
+  const work: PreparationWork = {
+    pause: createVehicleYield(signal),
+    geometry: (geometry = new THREE.BufferGeometry()) => {geometries.add(geometry); return geometry;},
+    dispose: geometry => {geometry.dispose(); geometries.delete(geometry);},
+  };
+  try {
+  await work.pause();
   source.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(source), center = box.getCenter(new THREE.Vector3());
   const scale = (id === 'model3-2018' ? 4.69 : 4.72) / box.getSize(new THREE.Vector3()).z;
@@ -180,23 +273,26 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
   const scene = new THREE.Group(); scene.name = id;
   const groups = new Map<Part, THREE.Group>();
   for (const part of ['body', ...panelParts, ...wheelParts] as Part[]) {const group = new THREE.Group(); group.name = `${id}-${part}`; groups.set(part, group); scene.add(group);}
-  const materials = new Map<string, THREE.Material>(), pieces: Piece[] = [];
+  const pieces: Piece[] = [];
   const steeringComponents = new Map<Part, string[]>(wheelParts.map(part => [part, []]));
   const nativePivots = new Map<Part, THREE.Vector3>();
-  source.traverse(object => {
+  const objects: THREE.Object3D[] = []; source.traverse(object => objects.push(object));
+  for (const object of objects) {
+    await work.pause();
     const part = nativePart([object.name]);
     if (part !== 'body') nativePivots.set(part, object.getWorldPosition(new THREE.Vector3()).applyMatrix4(transform));
-    if (!(object instanceof THREE.Mesh)) return;
+    if (!(object instanceof THREE.Mesh)) continue;
     if (Array.isArray(object.material)) throw new Error('Model 3 source unexpectedly contains a multi-material mesh.');
-    const geometry = object.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(transform, object.matrixWorld));
-    geometry.computeBoundingBox();
+    const geometry = work.geometry(object.geometry.clone());
+    await transformGeometry(geometry, new THREE.Matrix4().multiplyMatrices(transform, object.matrixWorld), work);
+    await finishBounds(geometry, work, true, false);
     const ancestors: string[] = []; for (let current: THREE.Object3D | null = object; current; current = current.parent) ancestors.push(current.name);
     pieces.push({geometry, name: object.name, material: object.material, ancestors});
-  });
+  }
   const tireCenters = new Map<Part, THREE.Vector3>();
   if (id === 'model3-2024') {
     const tireBounds = new Map<Part, THREE.Box3>();
-    for (const piece of pieces) if (piece.material.name === 'Tyre') for (const island of islands(piece.geometry)) {
+    for (const piece of pieces) if (piece.material.name === 'Tyre') for (const island of await islands(piece.geometry, work)) {
       const part = corner(island.bounds.getCenter(new THREE.Vector3()));
       const bounds = tireBounds.get(part) ?? new THREE.Box3(); bounds.union(island.bounds); tireBounds.set(part, bounds);
     }
@@ -204,7 +300,7 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
   }
   let serial = 0;
   const add = (part: Part, geometry: THREE.BufferGeometry, piece: Piece) => {
-    if (!geometry.attributes.position.count) {geometry.dispose(); return;}
+    if (!geometry.attributes.position.count) {work.dispose(geometry); return;}
     const mesh = new THREE.Mesh(geometry, prepareMaterials(piece.material, id, materials));
     mesh.name = `${id}-${piece.name}-${serial++}`;
     mesh.userData = {originalName: piece.name, originalMaterial: piece.material.name, articulatedPart: part};
@@ -212,6 +308,7 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
     groups.get(part)!.add(mesh); return mesh;
   };
   for (const piece of pieces) {
+    await work.pause();
     const buckets = new Map<Part, number[]>(), position = piece.geometry.attributes.position;
     const isCaliper = piece.material.name === (id === 'model3-2018' ? 'wheels.0' : 'Caliper');
     const append = (part: Part, indices: number[]) => {const bucket = buckets.get(part) ?? []; for (const i of indices) bucket.push(i); buckets.set(part, bucket);};
@@ -219,18 +316,24 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
       const basePart = nativePart(piece.ancestors);
       if (/^wheels/.test(piece.name)) {
         const index = piece.geometry.index, c = new THREE.Vector3();
-        for (let i = 0; i < (index?.count ?? position.count); i += 3) {
-          const ids = [0, 1, 2].map(k => index ? index.getX(i + k) : i + k); c.set(0, 0, 0);
-          for (const v of ids) c.add(normal.fromBufferAttribute(position, v)); c.multiplyScalar(1 / 3);
-          append(corner(c), ids);
+        const count = index?.count ?? position.count;
+        for (let start = 0; start < count; start += 384) {
+          for (let i = start, end = Math.min(start + 384, count); i < end; i += 3) {
+            const ids = [0, 1, 2].map(k => index ? index.getX(i + k) : i + k); c.set(0, 0, 0);
+            for (const v of ids) c.add(normal.fromBufferAttribute(position, v)); c.multiplyScalar(1 / 3);
+            append(corner(c), ids);
+          }
+          await work.pause();
         }
       } else if (basePart === 'body' && /^(black_lights_black_lights|tembus_belakang)/.test(piece.name)) {
         const planes = [new THREE.Plane(new THREE.Vector3(1, 0, 0), .755), new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.985), new THREE.Plane(new THREE.Vector3(0, 0, -1), 1.735)];
-        const [flap, fixed] = clipFlap(piece.geometry, planes);
-        add('chargePort', flap, piece); add('body', fixed, piece); piece.geometry.dispose(); continue;
+        const [flap, fixed] = await clipFlap(piece.geometry, planes, work);
+        add('chargePort', flap, piece); add('body', fixed, piece); work.dispose(piece.geometry); continue;
       } else {add(basePart, piece.geometry, piece); continue;}
     } else {
-      for (const island of islands(piece.geometry)) {
+      let islandNumber = 0;
+      for (const island of await islands(piece.geometry, work)) {
+        if ((islandNumber++ & 127) === 0) await work.pause();
         const center = island.bounds.getCenter(new THREE.Vector3()), wheel = corner(center);
         if (piece.material.name === 'RIM_2') {
           const tire = tireCenters.get(wheel)!;
@@ -238,19 +341,25 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
           // Keep its real hub cover/badge, and show the original uncovered alloy wheel.
           if (Math.hypot(center.y - tire.y, center.z - tire.z) > .12) continue;
         }
-        append(isCaliper ? wheel : highlandPart(island, piece.material.name, piece.name), island.indices);
+        const part = isCaliper ? wheel : highlandPart(island, piece.material.name, piece.name), bucket = buckets.get(part) ?? [];
+        for (let start = 0; start < island.indices.length; start += 2048) {
+          for (let i = start, end = Math.min(start + 2048, island.indices.length); i < end; i++) bucket.push(island.indices[i]);
+          await work.pause();
+        }
+        buckets.set(part, bucket);
       }
     }
     for (const [part, indices] of buckets) {
-      const mesh = add(isCaliper ? 'body' : part, selectedGeometry(piece.geometry, indices), piece);
+      const mesh = add(isCaliper ? 'body' : part, await selectedGeometry(piece.geometry, indices, work), piece);
       // The runtime attaches these to steering pivots, outside their rolling children.
       if (isCaliper && mesh) steeringComponents.get(part)!.push(mesh.name);
     }
-    piece.geometry.dispose();
+    work.dispose(piece.geometry);
   }
   scene.updateMatrixWorld(true);
   const panelBounds = new Map<Part, THREE.Box3>();
   for (const part of panelParts) {
+    await work.pause();
     const group = groups.get(part)!, bounds = new THREE.Box3().setFromObject(group);
     if (bounds.isEmpty()) throw new Error(`${id}: the real ${part} geometry could not be resolved.`);
     panelBounds.set(part, bounds);
@@ -273,7 +382,9 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
   for (const part of panelParts) {
     const group = groups.get(part)!, pivot = pivots[part];
     group.position.copy(pivot);
-    group.traverse(object => {if (object instanceof THREE.Mesh) object.geometry.translate(-pivot.x, -pivot.y, -pivot.z);});
+    const meshes: THREE.Mesh[] = []; group.traverse(object => {if (object instanceof THREE.Mesh) meshes.push(object);});
+    const translation = new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
+    for (const mesh of meshes) await transformGeometry(mesh.geometry, translation, work);
   }
   const wheels: WheelAudit[] = wheelParts.map((part, index) => {
     const group = groups.get(part)!, b = new THREE.Box3().setFromObject(group);
@@ -285,7 +396,8 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
   const flap = panelBounds.get('chargePort')!, socket = flap.getCenter(new THREE.Vector3()); socket.x = flap.max.x + .006;
   // Fixed recess sits behind the original moving lens and is concealed when closed.
   const socketMaterial = new THREE.MeshStandardMaterial({name: 'charging_socket', color: '#101216', roughness: .8});
-  const recess = new THREE.Mesh(new THREE.CylinderGeometry(.046, .046, .014, 24), socketMaterial);
+  materials.set(socketMaterial.uuid, socketMaterial);
+  const recess = new THREE.Mesh(work.geometry(new THREE.CylinderGeometry(.046, .046, .014, 24)), socketMaterial);
   recess.name = `${id}-charging-socket`; recess.rotation.z = Math.PI / 2; recess.position.copy(socket); scene.add(recess);
   scene.updateMatrixWorld(true);
   const audit: VehicleAudit = {nodeCount: 0, geometryCount: 0, triangles: 0, hinges, wheels, groundingTranslation: [0, 0, 0]};
@@ -295,5 +407,11 @@ export function prepareModel3(source: THREE.Group, id: Model3ID): PreparedVehicl
   });
   scene.userData.vehicleModel = id;
   scene.userData.sourceCredit = id === 'model3-2018' ? 'Tesla 2018 Model 3 by Ameer Studio, CC BY 4.0' : '2024 Tesla Model 3 + Interior by tonielpro520, CC BY 4.0; CabinWise copy';
+  await work.pause();
   return {scene, audit, chargeSocket: new THREE.Vector3(flap.min.x - .012, socket.y, socket.z), nativeMaterials: true};
+  } catch (error) {
+    geometries.forEach(geometry => geometry.dispose());
+    materials.forEach(material => material.dispose());
+    throw error;
+  }
 }

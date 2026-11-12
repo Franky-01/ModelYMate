@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { HingeAudit, PreparedVehicle, VehicleAudit, WheelAudit } from './vehicle-types';
+import { createVehicleYield } from './vehicle-yield';
 
 type ModelSId = 'models-2013' | 'models-2021';
 type Plane = [number, number, number, number];
@@ -7,6 +8,7 @@ type Vertex = number[];
 type Region = { key: string; planes: Plane[]; min: THREE.Vector3; max: THREE.Vector3 };
 type Channel = { name: string; size: number; offset: number };
 type Surface = { mesh: THREE.Mesh; sourceName: string; material: THREE.Material; box: THREE.Box3; wheel?: string; steering?: string };
+type Work = { pause: () => Promise<void>; geometries: Set<THREE.BufferGeometry>; materials: Set<THREE.Material> };
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const sideNames = ['driverFront', 'passengerFront', 'driverRear', 'passengerRear'] as const;
@@ -78,7 +80,7 @@ function intersectsTriangle(a: Vertex, b: Vertex, c: Vertex, r: Region) {
     Math.max(a[2], b[2], c[2]) < r.min.z || Math.min(a[2], b[2], c[2]) > r.max.z);
 }
 
-function splitSurface(surface: Surface, regions: Region[]) {
+async function splitSurface(surface: Surface, regions: Region[], work: Work) {
   const geometry = surface.mesh.geometry;
   const names = ['position', ...Object.keys(geometry.attributes).filter(name => name !== 'position')];
   let stride = 0;
@@ -106,7 +108,9 @@ function splitSurface(surface: Surface, regions: Region[]) {
     }
   };
   const count = geometry.index?.count ?? geometry.attributes.position.count;
-  for (let i = 0; i < count; i += 3) {
+  for (let start = 0; start < count; start += 384) {
+    await work.pause();
+    for (let i = start, end = Math.min(start + 384, count); i < end; i += 3) {
     const a = read(geometry.index ? geometry.index.getX(i) : i);
     const b = read(geometry.index ? geometry.index.getX(i + 1) : i + 1);
     const c = read(geometry.index ? geometry.index.getX(i + 2) : i + 2);
@@ -123,28 +127,44 @@ function splitSurface(surface: Surface, regions: Region[]) {
       remaining = next;
     }
     for (const polygon of remaining) emit('fixed', polygon);
+    }
   }
   const parts: { key: string; mesh: THREE.Mesh }[] = [];
   for (const [key, values] of buffers) {
     if (!values.length) continue;
     const result = new THREE.BufferGeometry(), count = values.length / stride;
+    work.geometries.add(result);
     for (const channel of channels) {
       const array = new Float32Array(count * channel.size);
-      for (let i = 0; i < count; i++) for (let k = 0; k < channel.size; k++) array[i * channel.size + k] = values[i * stride + channel.offset + k];
+      for (let start = 0; start < count; start += 2048) {
+        await work.pause();
+        for (let i = start, end = Math.min(start + 2048, count); i < end; i++) {
+          for (let k = 0; k < channel.size; k++) array[i * channel.size + k] = values[i * stride + channel.offset + k];
+        }
+      }
       result.setAttribute(channel.name, new THREE.BufferAttribute(array, channel.size));
     }
-    result.normalizeNormals(); result.computeBoundingBox(); result.computeBoundingSphere();
+    const normal = result.getAttribute('normal'), vector = new THREE.Vector3();
+    for (let start = 0; start < normal.count; start += 2048) {
+      await work.pause();
+      for (let i = start, end = Math.min(start + 2048, normal.count); i < end; i++) {
+        vector.fromBufferAttribute(normal, i).normalize(); normal.setXYZ(i, vector.x, vector.y, vector.z);
+      }
+    }
+    await work.pause(); result.computeBoundingBox();
+    await work.pause(); result.computeBoundingSphere();
     const mesh = new THREE.Mesh(result, surface.material);
     mesh.name = `${surface.mesh.name}__${key}`;
     mesh.userData = { ...surface.mesh.userData, sourceName: surface.sourceName, panel: key };
     parts.push({ key, mesh });
   }
-  geometry.dispose();
+  geometry.dispose(); work.geometries.delete(geometry);
   return parts;
 }
 
-function roleMaterial(original: THREE.Material, sourceName: string, id: ModelSId, tire: boolean) {
+function roleMaterial(original: THREE.Material, sourceName: string, id: ModelSId, tire: boolean, work: Work) {
   const material = original.clone();
+  work.materials.add(material);
   const before = original.name;
   material.userData = { ...original.userData, sourceMaterialName: before };
   if (id === 'models-2013') {
@@ -176,16 +196,20 @@ function roleMaterial(original: THREE.Material, sourceName: string, id: ModelSId
   return material;
 }
 
-function editableGeometry(source: THREE.BufferGeometry) {
+async function editableGeometry(source: THREE.BufferGeometry, work: Work) {
   const geometry = source.clone();
+  work.geometries.add(geometry);
   // Meshopt uses normalized integer positions. Bake decoded floating-point values before applying metre-space transforms.
   for (const [name, attribute] of Object.entries(source.attributes)) {
     const values = new Float32Array(attribute.count * attribute.itemSize);
-    for (let i = 0; i < attribute.count; i++) {
-      values[i * attribute.itemSize] = attribute.getX(i);
-      if (attribute.itemSize > 1) values[i * attribute.itemSize + 1] = attribute.getY(i);
-      if (attribute.itemSize > 2) values[i * attribute.itemSize + 2] = attribute.getZ(i);
-      if (attribute.itemSize > 3) values[i * attribute.itemSize + 3] = attribute.getW(i);
+    for (let start = 0; start < attribute.count; start += 2048) {
+      await work.pause();
+      for (let i = start, end = Math.min(start + 2048, attribute.count); i < end; i++) {
+        values[i * attribute.itemSize] = attribute.getX(i);
+        if (attribute.itemSize > 1) values[i * attribute.itemSize + 1] = attribute.getY(i);
+        if (attribute.itemSize > 2) values[i * attribute.itemSize + 2] = attribute.getZ(i);
+        if (attribute.itemSize > 3) values[i * attribute.itemSize + 3] = attribute.getW(i);
+      }
     }
     geometry.setAttribute(name, new THREE.BufferAttribute(values, attribute.itemSize));
   }
@@ -206,7 +230,7 @@ function nativePlaidPanel(surface: Surface): string | undefined {
   return undefined;
 }
 
-function earlyParts(surface: Surface, regions: Region[]) {
+async function earlyParts(surface: Surface, regions: Region[], work: Work) {
   const name=surface.sourceName;
   if(name.startsWith('isteven_'))return [{key:'fixed',mesh:surface.mesh}];
   if(/VidreDarrera|Matricula001|Box013/.test(name))return [{key:'trunk',mesh:surface.mesh}];
@@ -214,22 +238,24 @@ function earlyParts(surface: Surface, regions: Region[]) {
   const rear=/Object003_|Plane012_vidre|Box011_|Object002_/.test(name);
   if(front||rear){
     const half=front?'Front':'Rear';
-    return splitSurface(surface,[boxRegion(`driver${half}`,[-2,-1,-4],[0,3,4]),boxRegion(`passenger${half}`,[0,-1,-4],[2,3,4])]);
+    return splitSurface(surface,[boxRegion(`driver${half}`,[-2,-1,-4],[0,3,4]),boxRegion(`passenger${half}`,[0,-1,-4],[2,3,4])],work);
   }
   if(/Plane005_metalic_0/.test(name)){
-    const parts=splitSurface(surface,[...regions.filter(r=>['frunk','trunk','chargePort'].includes(r.key)),
+    const parts=await splitSurface(surface,[...regions.filter(r=>['frunk','trunk','chargePort'].includes(r.key)),
       boxRegion('cargoLiner',[-.70,.30,-2.28],[.70,1.0,-1.24]),
-    ]);
+    ],work);
     for(const part of parts)if(part.key==='cargoLiner'){
       const material=(part.mesh.material as THREE.MeshStandardMaterial).clone();material.name='cargo_liner';material.color.set('#171b1d');material.metalness=0;material.roughness=.93;
+      work.materials.add(material);
       part.mesh.material=material;part.key='fixed';
     }
     for(const part of parts)if(part.key==='fixed'&&(part.mesh.material as THREE.Material).name==='exterior_paint'){
       const material=(part.mesh.material as THREE.Material).clone();material.side=THREE.FrontSide;part.mesh.material=material;
+      work.materials.add(material);
     }
     return parts;
   }
-  if(/Plane018_/.test(name))return splitSurface(surface,regions.filter(r=>r.key==='trunk'||r.key==='chargePort'));
+  if(/Plane018_/.test(name))return splitSurface(surface,regions.filter(r=>r.key==='trunk'||r.key==='chargePort'),work);
   return [{key:'fixed',mesh:surface.mesh}];
 }
 
@@ -277,7 +303,7 @@ function addFrunkLiner(scene: THREE.Group, id: ModelSId) {
   }
 }
 
-function prepareSurfaces(source: THREE.Group, id: ModelSId): { surfaces: Surface[]; wheels: WheelAudit[] } {
+async function prepareSurfaces(source: THREE.Group, id: ModelSId, work: Work): Promise<{ surfaces: Surface[]; wheels: WheelAudit[] }> {
   source.updateMatrixWorld(true);
   const originalBounds = new THREE.Box3().setFromObject(source);
   const size = originalBounds.getSize(new THREE.Vector3());
@@ -288,9 +314,11 @@ function prepareSurfaces(source: THREE.Group, id: ModelSId): { surfaces: Surface
     .multiply(new THREE.Matrix4().makeRotationY(Math.PI))
     .multiply(new THREE.Matrix4().makeTranslation(-center.x, -originalBounds.min.y, -center.z));
   const surfaces: Surface[] = [];
-  source.traverse(object => {
-    if (!(object instanceof THREE.Mesh)) return;
-    const geometry = editableGeometry(object.geometry);
+  const meshes: THREE.Mesh[] = [];
+  source.traverse(object => {if (object instanceof THREE.Mesh) meshes.push(object);});
+  for (const object of meshes) {
+    await work.pause();
+    const geometry = await editableGeometry(object.geometry, work);
     let matrix = object.matrixWorld.clone();
     // The heritage artist posed both front wheels. Cancel that local yaw before the runtime steering pivot is added.
     const wheelGroup = object.parent;
@@ -304,7 +332,8 @@ function prepareSurfaces(source: THREE.Group, id: ModelSId): { surfaces: Surface
         .multiply(new THREE.Matrix4().makeTranslation(-position.x, -position.y, -position.z));
       matrix = straighten.multiply(matrix);
     }
-    geometry.applyMatrix4(normalize.clone().multiply(matrix)); geometry.computeBoundingBox();
+    await work.pause(); geometry.applyMatrix4(normalize.clone().multiply(matrix));
+    await work.pause(); geometry.computeBoundingBox();
     const box = geometry.boundingBox!.clone(), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
     const name = object.name;
     const original = (Array.isArray(object.material) ? object.material[0] : object.material) as THREE.Material;
@@ -314,12 +343,12 @@ function prepareSurfaces(source: THREE.Group, id: ModelSId): { surfaces: Surface
     const caliper = id === 'models-2013' ? /^(isteven_)?cal/.test(name) : [261, 262, 263, 264].includes(number);
     const quadrant = `${c.x < 0 ? 'driver' : 'passenger'}-${c.z < 0 ? 'front' : 'rear'}`;
     const wheel = rolling ? quadrant : undefined, steering = caliper ? quadrant : undefined;
-    const material = roleMaterial(original, name, id, tire);
+    const material = roleMaterial(original, name, id, tire, work);
     if (caliper) material.name = 'brake_caliper';
     const mesh = new THREE.Mesh(geometry, material); mesh.name = `${id}__${name}`;
     mesh.userData = { ...object.userData, sourceName: name, tire };
     surfaces.push({ mesh, sourceName: name, material, box, wheel, steering });
-  });
+  }
   const wheels: WheelAudit[] = [];
   for (const key of ['driver-front', 'passenger-front', 'driver-rear', 'passenger-rear']) {
     const members = surfaces.filter(surface => surface.wheel === key);
@@ -331,9 +360,12 @@ function prepareSurfaces(source: THREE.Group, id: ModelSId): { surfaces: Surface
   return { surfaces, wheels };
 }
 
-export function prepareModelS(source: THREE.Group, id: ModelSId): PreparedVehicle {
-  const { surfaces, wheels } = prepareSurfaces(source, id);
+export async function prepareModelS(source: THREE.Group, id: ModelSId, signal?: AbortSignal): Promise<PreparedVehicle> {
+  const work: Work = { pause: createVehicleYield(signal), geometries: new Set(), materials: new Set() };
   const scene = new THREE.Group(); scene.name = `${id}__articulated`;
+  try {
+  await work.pause();
+  const { surfaces, wheels } = await prepareSurfaces(source, id, work);
   const early = id === 'models-2013';
   const definitions: { stateKey: string; pivot: THREE.Vector3; angle: number; axis: number[] }[] = [
     { stateKey: 'driverFront', pivot: V(-.84, .96, early ? -.91 : -.98), angle: -1.04, axis: [0, 1, 0] },
@@ -352,12 +384,13 @@ export function prepareModelS(source: THREE.Group, id: ModelSId): PreparedVehicl
   }
   const regions = panelRegions(id);
   for (const surface of surfaces) {
+    await work.pause();
     if (surface.wheel || surface.steering) { scene.add(surface.mesh); continue; }
     const nativePanel = early ? undefined : nativePlaidPanel(surface);
     const plateRegion = boxRegion('trunk', [-.7,.60,2.20],[.7,1.15,2.50]);
-    const parts = early ? earlyParts(surface,regions) : nativePanel !== undefined ? [{key:nativePanel,mesh:surface.mesh}]
-      : splitSurface(surface, surface.sourceName === 'Surface_033' ? [plateRegion]
-        : regions.filter(region => region.key !== 'frunk' && region.key !== 'trunk'));
+    const parts = early ? await earlyParts(surface,regions,work) : nativePanel !== undefined ? [{key:nativePanel,mesh:surface.mesh}]
+      : await splitSurface(surface, surface.sourceName === 'Surface_033' ? [plateRegion]
+        : regions.filter(region => region.key !== 'frunk' && region.key !== 'trunk'),work);
     for (const { key, mesh } of parts) {
       scene.add(mesh);
       if (key !== 'fixed') { scene.updateMatrixWorld(true); pivots.get(key)!.attach(mesh); }
@@ -365,6 +398,7 @@ export function prepareModelS(source: THREE.Group, id: ModelSId): PreparedVehicl
   }
   addFrunkLiner(scene, id);
   if(early)addEarlyDoorCards(scene,pivots,id);
+  await work.pause();
   for (const [key, pivot] of pivots) if (!pivot.children.length) throw new Error(`${id}: no source geometry mapped to ${key}`);
   scene.updateMatrixWorld(true);
   const portBounds = new THREE.Box3().setFromObject(pivots.get('chargePort')!);
@@ -377,4 +411,18 @@ export function prepareModelS(source: THREE.Group, id: ModelSId): PreparedVehicl
   scene.userData.modelIdentity = early ? 'Early Model S; 2013-era exterior, exact year not supplied by original artist' : '2021-refresh Model S Plaid; exact trim not manufacturer-verified';
   scene.userData.articulation = 'Source surfaces partitioned into presentation panels; imported cabin geometry retained';
   return { scene, audit, chargeSocket, nativeMaterials: true };
+  } catch (error) {
+    // An abort can arrive before a converted surface has joined the result.
+    // Dispose every resource created here, including those temporary surfaces;
+    // source textures and source geometry remain owned by the caller.
+    scene.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      work.geometries.add(node.geometry);
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) work.materials.add(material);
+    });
+    work.geometries.forEach(geometry => geometry.dispose());
+    work.materials.forEach(material => material.dispose());
+    scene.clear();
+    throw error;
+  }
 }

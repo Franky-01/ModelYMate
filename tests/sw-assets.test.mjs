@@ -6,14 +6,14 @@ import {createHash,webcrypto} from 'node:crypto';
 const source=await fs.readFile(new URL('../public/sw.js',import.meta.url),'utf8');
 const expected={'/assets/vehicle.glb':'fictional-current-model','/assets/Atelier.hdr':'fictional-current-light','/assets/vehicle.audit.json':'fictional-current-audit','/assets/vehicles/modelx-2020/model.glb':'fictional-x','/assets/vehicles/model3-2024/model.glb':'fictional-3'};
 const hashes=Object.fromEntries(Object.entries(expected).map(([url,bytes])=>[url,createHash('sha256').update(bytes).digest('hex')]));
-const key=r=>new URL(typeof r==='string'?r:r.url,'https://fixture.invalid').pathname;
+const key=r=>{const url=new URL(typeof r==='string'?r:r.url,'https://fixture.invalid');return url.pathname+url.search;};
 async function fixture(options={}){
- const stores=options.stores??new Map(),handlers={},reads=[],blockedWrites=options.blockedWrites??new Set(),pending=new Set();let offline=options.offline??false;
+ const stores=options.stores??new Map(),handlers={},reads=[],digests=[],blockedWrites=options.blockedWrites??new Set(),pending=new Set();let offline=options.offline??false;
  const caches={keys:async()=>[...stores.keys()],delete:async name=>stores.delete(name),open:async name=>{if(!stores.has(name))stores.set(name,new Map());const data=stores.get(name);return{match:async request=>data.get(key(request))?.clone(),put:async(request,response)=>{if(blockedWrites.has(name))throw new DOMException('Cache quota exceeded','QuotaExceededError');data.set(key(request),response.clone());}};}};
  const patched=source.replace(/const VERSION='[^']+';/,"const VERSION='modelymate-pwa-new';").replace(/const ASSET_CACHE='[^']+';/,"const ASSET_CACHE='modelymate-assets-v1-current';").replace(/const ASSET_DIGESTS=\{[^\n]*\};/,`const ASSET_DIGESTS=${JSON.stringify(hashes)};`);
- vm.runInNewContext(patched,{self:{location:new URL('https://fixture.invalid'),addEventListener:(name,handler)=>handlers[name]=handler,clients:{claim:async()=>{}}},caches,crypto:webcrypto,URL,Uint8Array,fetch:async request=>{reads.push(key(request));if(offline)throw new Error('offline');return new Response(expected[key(request)]??'other');}});
+ vm.runInNewContext(patched,{self:{location:new URL('https://fixture.invalid'),addEventListener:(name,handler)=>handlers[name]=handler,clients:{claim:async()=>{}}},caches,crypto:{subtle:{digest:(algorithm,bytes)=>{digests.push(bytes.byteLength);return webcrypto.subtle.digest(algorithm,bytes);}}},URL,Uint8Array,fetch:async request=>{reads.push(key(request));if(offline)throw new Error('offline');return new Response(expected[key(request)]??'other');}});
  const waitUntil=promise=>{pending.add(promise);promise.then(()=>pending.delete(promise),()=>pending.delete(promise));};
- return{caches,stores,handlers,reads,blockedWrites,setOffline:value=>offline=value,idle:async()=>{while(pending.size)await Promise.all([...pending]);},activate:async()=>{let work;handlers.activate({waitUntil:p=>work=p});await work;},fetch:async url=>{let response;handlers.fetch({request:new Request('https://fixture.invalid'+url),respondWith:p=>response=p,waitUntil});return response?await response:null;}};
+ return{caches,stores,handlers,reads,digests,blockedWrites,setOffline:value=>offline=value,idle:async()=>{while(pending.size)await Promise.all([...pending]);},activate:async()=>{let work;handlers.activate({waitUntil:p=>work=p});await work;},fetch:async url=>{let response;handlers.fetch({request:new Request('https://fixture.invalid'+url),respondWith:p=>response=p,waitUntil});return response?await response:null;}};
 }
 test('SW upgrades copy only matching model bytes before retiring the old app cache',async()=>{
  const f=await fixture(),old=await f.caches.open('modelymate-pwa-old'),unrelated=await f.caches.open('other-app');
@@ -78,4 +78,48 @@ test('cache quota failures do not fail successful network responses or enqueue A
  assert.equal(await(await f.caches.open('modelymate-assets-v1-current')).match(x),undefined);
  assert.equal(await(await f.caches.open('modelymate-pwa-new')).match('/assets/app-test.js'),undefined);
  assert.equal(await f.fetch('/pwa-api/config'),null);assert.deepEqual(f.reads,[x,'/assets/app-test.js']);
+});
+
+test('a successful verified model write avoids repeated whole-body hashes until worker restart',async()=>{
+ const x='/assets/vehicles/modelx-2020/model.glb',f=await fixture();
+ assert.equal(await(await f.fetch(x)).text(),expected[x]);await f.idle();
+ assert.equal(f.digests.length,1,'network bytes are verified before being trusted');
+ for(let i=0;i<6;i++)assert.equal(await(await f.fetch(x)).text(),expected[x]);
+ assert.equal(f.digests.length,1,'warm scene changes do not re-read and hash the same model');
+ assert.deepEqual(f.reads,[x]);
+ const restarted=await fixture({stores:f.stores,offline:true});
+ assert.equal(await(await restarted.fetch(x)).text(),expected[x]);
+ assert.equal(restarted.digests.length,1,'a restarted worker verifies its first current-cache read');
+ assert.equal(await(await restarted.fetch(x)).text(),expected[x]);assert.equal(restarted.digests.length,1);
+});
+
+test('cache eviction revokes worker trust before a different cached body can be served',async()=>{
+ const x='/assets/vehicles/modelx-2020/model.glb',currentName='modelymate-assets-v1-current',f=await fixture({offline:true}),cache=await f.caches.open(currentName);
+ await cache.put(x,new Response(expected[x]));assert.equal(await(await f.fetch(x)).text(),expected[x]);assert.equal(f.digests.length,1);
+ f.stores.get(currentName).delete(x);
+ await assert.rejects(f.fetch(x),/offline/);
+ await cache.put(x,new Response('incorrect replacement after eviction'));
+ await assert.rejects(f.fetch(x),/offline/,'missing cache entry must have revoked its verification');
+ assert.equal(f.digests.length,2);
+});
+
+test('a changed cached response identity requires another digest even within the same worker',async()=>{
+ const x='/assets/vehicles/modelx-2020/model.glb',f=await fixture({offline:true}),cache=await f.caches.open('modelymate-assets-v1-current');
+ await cache.put(x,new Response(expected[x],{headers:{etag:'original'}}));
+ assert.equal(await(await f.fetch(x)).text(),expected[x]);assert.equal(f.digests.length,1);
+ await cache.put(x,new Response('incorrect changed representation',{headers:{etag:'changed'}}));
+ await assert.rejects(f.fetch(x),/offline/,'changed validators cannot reuse a prior verified representation');
+ assert.equal(f.digests.length,2);
+});
+
+test('failed writes and query variants never acquire immutable-current-entry trust',async()=>{
+ const x='/assets/vehicles/modelx-2020/model.glb',currentName='modelymate-assets-v1-current',f=await fixture();
+ f.blockedWrites.add(currentName);
+ for(let i=0;i<2;i++){assert.equal(await(await f.fetch(x)).text(),expected[x]);await f.idle();}
+ assert.equal(f.digests.length,2,'each unsuccessful cache write still verifies its own bytes');
+ assert.equal(await(await f.caches.open(currentName)).match(x),undefined);
+ f.blockedWrites.delete(currentName);const cache=await f.caches.open(currentName),query=x+'?other=1';
+ await cache.put(query,new Response(expected[x]));
+ for(let i=0;i<2;i++)assert.equal(await(await f.fetch(query)).text(),expected[x]);
+ assert.equal(f.digests.length,4,'query cache keys do not reuse a canonical-path verification');
 });

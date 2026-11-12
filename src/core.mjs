@@ -6,10 +6,26 @@ export const number = v => typeof v === 'number' && Number.isFinite(v) ? v : nul
 export const nonNegative = v => number(v) !== null && v >= 0 ? v : null;
 export const positive = v => number(v) !== null && v > 0 ? v : null;
 export const percent = v => number(v) !== null && v >= 0 && v <= 100 ? v : null;
-export const fmt = (v, digits = 1) => number(v) === null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(v);
+const numberFormats = new Map();
+export function fmt(v, digits = 1) {
+  if (number(v) === null) return '—';
+  // Bound the cache to ordinary precision values. Let Intl keep its existing
+  // coercion/range semantics for other values instead of normalizing them here.
+  if (!Number.isInteger(digits) || digits < 0 || digits > 20)
+    return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(v);
+  let formatter = numberFormats.get(digits);
+  if (!formatter) { formatter = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }); numberFormats.set(digits, formatter); }
+  return formatter.format(v);
+}
 export const date = v => typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v) : null;
-export const time = v => date(v)?.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) ?? '—';
-export const day = v => date(v)?.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) ?? '日期未知';
+const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' });
+const dayFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+// Read local calendar fields each time, then format them with reusable UTC
+// formatters. Device time-zone changes still apply without rebuilding Intl for
+// every visible row; the neutral leap year also preserves February 29.
+const localDisplayDate = d => Date.UTC(2000, d.getMonth(), d.getDate(), d.getHours(), d.getMinutes());
+export const time = v => { const d = date(v); return d ? timeFormat.format(localDisplayDate(d)) : '—'; };
+export const day = v => { const d = date(v); return d ? dayFormat.format(localDisplayDate(d)) : '日期未知'; };
 export const localDay = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 export const stateText = s => ({driving:'行驶中', charging:'充电中', parked:'已停好', asleep:'已休眠', offline:'离线', online:'在线', suspended:'暂停采集'}[s] ?? '状态未知');
 export const validCoordinate = (lat, lng) => number(lat) !== null && number(lng) !== null && Math.abs(lat)<=90 && Math.abs(lng)<=180 && (lat !== 0 || lng !== 0);
