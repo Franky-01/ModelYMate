@@ -1,0 +1,22 @@
+Tesla Model X by Abdul.Hannan
+Author: https://sketchfab.com/Abdul.Hannan
+Original work: https://sketchfab.com/3d-models/tesla-model-x-6a5469a1b776431cb1e1e17a72a2c4f5
+Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+
+Public source mirror: Ai2 Objaverse
+https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-104/6a5469a1b776431cb1e1e17a72a2c4f5.glb
+
+Changes by ModelYMate: baked transforms, normalized coordinates and scale,
+separated existing disconnected door/lamp/wheel parts, converted legacy PBR
+materials, smoothed body normals. Every source triangle retained.
+Application adds an approximate legacy five-seat cabin, round steering wheel,
+portrait screen, cargo/frunk liners and charging socket. These additions were
+not supplied by the original author. No exact vehicle model year is asserted;
+modelx-2020 is an internal identifier. The source was published October 2020.
+
+Lossless transport compression: EXT_meshopt_compression with unchanged decoded
+vertex attributes and original index order (INDICES mode), no quantization or
+geometry simplification. Original image bytes retained verbatim.
+Final model.glb: 25561308 bytes
+SHA-256: 69ea9889fbb3d5c1b194aeecaf88a68b35d64acff602adc7808593d3ecfb0169

@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "inspectedAtUtc": "2026-11-12T12:16:05.381Z",
+  "requestedVehicle": "Tesla Model S Plaid 2021",
+  "selectedAlternative": {
+    "title": "Tesla Model S Plaid 2021",
+    "author": "3D Hawk",
+    "authorUrl": "https://sketchfab.com/lachie.mullard",
+    "source": "https://sketchfab.com/3d-models/tesla-model-s-plaid-2021-481866a0b23143b18e8e4e7f642cee53",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "currentOriginalApiStatus": 404
+  },
+  "sourceEvidence": [
+    {
+      "url": "https://github.com/MananGandhi1810/FooBar-Electric-Vehicle-CyberCypher-Hackathon/blob/master/assets/car_3d_models/tesla_model_s_plaid_2021/license.txt",
+      "gitBlobSha1": "eaebaf5adf721e80d517cb542dac1ef6bc5237cb"
+    },
+    {
+      "url": "https://github.com/MananGandhi1810/FooBar-Electric-Vehicle-CyberCypher-Hackathon/blob/master/assets/car_3d_models/tesla_model_s_plaid_2021/scene.gltf",
+      "gitBlobSha1": "a88baa5e6c301f8713af24b62bc93a5547a08e09",
+      "evidence": "glTF asset.extras agrees on source, author, title and CC-BY-4.0."
+    },
+    {
+      "url": "https://github.com/jz237/jez237-site/blob/8ac0b26a278c320869299f3c14225a5c8267281c/demos/model-s-studio/ASSET-LICENSE.txt",
+      "gitBlobSha1": "eaebaf5adf721e80d517cb542dac1ef6bc5237cb"
+    }
+  ],
+  "acquisition": {
+    "url": "https://raw.githubusercontent.com/jz237/jez237-site/8ac0b26a278c320869299f3c14225a5c8267281c/demos/model-s-studio/model-s.glb",
+    "repositoryCommit": "8ac0b26a278c320869299f3c14225a5c8267281c",
+    "gitBlobSha1": "8a9d09f84e14dc72864ab3445fbf462d8d3be68d",
+    "sha256": "aacb635327152c5e076265c57a584e30723a669f990d0771374cd6dc5017eb37",
+    "bytes": 3538720
+  },
+  "mirrorModifications": "Normalized dimensions/transforms, reconstructed connected surfaces across material chunks, grouped small islands, optimized and meshopt-compressed without geometry simplification. Upstream runtime battery additions are not included in the downloaded GLB.",
+  "exactYearCaveat": "Source title and asset.extras state 2021; source material names use M_2022_Tesla_Model_S_Plaid. Treat as 2021-refresh Plaid generation candidate pending visual comparison, not confirmed exact model-year/trim replica.",
+  "rightsCaveat": "Current original Sketchfab item is unavailable (API 404). License evidence is preserved in original-format mirror license, original glTF asset.extras, and optimized GLB extras. No claim that current original page offers download.",
+  "runtimeModifications": "Decode Meshopt integer attributes to floating point, normalize units/heading, retain source cabin, map native hood/hatch/side windows and interior door parts to seven presentation hinges, partition remaining merged surfaces, assign material roles, preserve source texture maps, add a recessed front compartment liner, configure rolling wheels and steering-only calipers.",
+  "localFiles": [
+    {
+      "name": "model.glb",
+      "bytes": 3538720,
+      "sha256": "aacb635327152c5e076265c57a584e30723a669f990d0771374cd6dc5017eb37"
+    }
+  ],
+  "publication": {
+    "date": "2026-11-12",
+    "repository": "https://github.com/Franky-01/ModelYMate",
+    "note": "Public redistribution with original attribution and asset licenses retained. Historical source inspection details are not manufacturer certification or physical-device acceptance."
+  }
+}

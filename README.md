@@ -6,17 +6,17 @@
 
 **你的每一程，直观可见。**
 
-TeslaMate 可视化网页 · 3D Model Y 车库 · 个人自托管 PWA
+TeslaMate 可视化网页 · 3D 多车型车库 · 个人自托管 PWA
 
 [![Code License](https://img.shields.io/badge/Code-MIT-168C70)](LICENSE)
-[![Vehicle License](https://img.shields.io/badge/Vehicle-CC%20BY--NC%204.0-E59B36)](THIRD_PARTY_NOTICES.md)
+[![Vehicle License](https://img.shields.io/badge/Vehicles-CC%20BY%20%2F%20BY--NC%204.0-E59B36)](THIRD_PARTY_NOTICES.md)
 ![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
 <br>
 ![Node.js](https://img.shields.io/badge/Node.js-24-5FA04E?logo=nodedotjs&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-0.180-333333?logo=threedotjs&logoColor=white)
 ![PWA](https://img.shields.io/badge/PWA-Ready-5A0FC8?logo=pwa&logoColor=white)
-[![Local Tests](https://img.shields.io/badge/Local%20tests-188%20passed-168C70)](#开发与检查)
+[![Local Tests](https://img.shields.io/badge/Local%20tests-195%20passed-168C70)](#开发与检查)
 
 [功能预览](#1-功能) · [系统架构](#2-系统架构) · [安装启动](#3-安装与运行) · [首次配置](#4-首次配置) · [许可证](#5-许可证与鸣谢)
 
@@ -68,6 +68,21 @@ TeslaMate 可视化网页 · 3D Model Y 车库 · 个人自托管 PWA
 
 此外还提供电池健康估计、电价规则、费用校正、地点别名、司机管理、本地资料备份与恢复。**所有车辆操作均为数据查看；车库动画不会发送解锁、唤醒或其他车辆控制命令。**
 
+### 七种车辆展示
+
+在首页右上角的 **车库主题 → 展示车型** 选择模型，首页、车库和充电透视会一起切换。选择按当前数据来源与车辆保存，不会修改 TeslaMate 的车辆身份、历史记录或统计。
+
+| 车型 | 展示版本 | 模型下载大小 |
+| --- | --- | --- |
+| Model Y | 新款（保留原模型） / 2021 | 23.8 MB / 20.9 MB |
+| Model 3 | 2018 / 2024 焕新版 | 13.1 MB / 8.0 MB |
+| Model S | 早期款 / Plaid 2021 改款 | 2.2 MB / 3.5 MB |
+| Model X | 老款 | 25.6 MB |
+
+七种模型共用车漆、涂装、车门与前后备厢及充电口开合、车轮转向、雨景与展厅主题、入场及充电展示；Model X 后门采用双关节鹰翼门动画。模型按选择加载，成功加载后可离线使用；首次切换未缓存模型需要联网。
+
+早期 Model S 和老款 Model X 按车身代际标注，原始模型没有得到制造商核验的精确年款与配置。早期 S 的内饰细节较简化，部分翼子板和门槛仍有源模型表面不平；老款 X 的五座内饰为近似补建。所有车门机构和电池视图都是可视化示意，不是原厂 CAD 或每一生产年款的精确复刻。上方深色截图保留原 Model Y 演示。
+
 ## 2. 系统架构
 
 ```mermaid
@@ -111,7 +126,7 @@ pnpm start
 
 终端显示 `ModelYMate PWA http://127.0.0.1:5180` 后，打开 [http://127.0.0.1:5180](http://127.0.0.1:5180)。
 
-**首次启动即可使用内置演示，不需要车辆凭据。** 未配置地图时，地图不可用，其他演示功能仍可体验。首次加载 3D 模型约需下载 23.8 MB 资源，之后可由浏览器缓存。
+**首次启动即可使用内置演示，不需要车辆凭据。** 未配置地图时，地图不可用，其他演示功能仍可体验。默认 Model Y 首次加载约需下载 23.8 MB；其他模型按选择下载约 2.2–25.6 MB，之后可由浏览器缓存。
 
 ### 在自己的设备上使用
 
@@ -140,7 +155,7 @@ pnpm test
 pnpm run build:frontend
 ```
 
-2026-11-12 发布源码的本地验证：**188/188 项测试通过，TypeScript 检查与前端构建通过**。这是本地验证记录；物理 iPhone Safari/PWA、移动设备性能和实车联动需在自己的环境中验证。`pnpm build` 与 `pnpm run build:frontend` 等效，构建会更新 `public/sw.js` 的缓存版本。
+2026-11-12 发布源码的本地验证：**195/195 项测试通过，TypeScript 检查与前端构建通过**。这是本地验证记录；物理 iPhone Safari/PWA、移动设备性能和实车联动需在自己的环境中验证。`pnpm build` 与 `pnpm run build:frontend` 等效，构建会更新 `public/sw.js` 的缓存版本。
 
 ## 4. 首次配置
 
@@ -226,8 +241,8 @@ AMAP_SECURITY_CODE=与_Key_配套的安全密钥
 ## 5. 许可证与鸣谢
 
 - **项目原创代码：** [MIT](LICENSE) © 2026 Franky-01 and ModelYMate contributors。
-- **车辆模型：** BloxBloger 的 2025 Tesla Model Y，采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)，仅限非商业使用；保留现有署名、转换和修改记录。模型不属于 MIT 授权范围。
+- **车辆模型：** 原 Model Y 与早期 Model S 组合模型包含 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 素材，仅限非商业使用；其余新增模型采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。逐项来源、作者和改编记录见完整模型鸣谢。模型不属于 MIT 授权范围，不能把整个仓库视为可自由商用。
 - **第三方代码与素材：** 见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [完整模型鸣谢](public/assets/CREDITS.md)。
 - **README 展示结构参考：** [my-tesla](https://github.com/kinopico-zhang/my-tesla)。本文内容与截图展示 ModelYMate 自身功能；截图中的含模型内容继续遵守模型许可。
 
-本项目与 Tesla, Inc. 无隶属或背书关系。Tesla 与 Model Y 名称用于说明兼容对象和模型来源。
+本项目与 Tesla, Inc. 无隶属或背书关系。Tesla 与 Model 3、Model S、Model X、Model Y 名称用于说明兼容对象和模型来源。

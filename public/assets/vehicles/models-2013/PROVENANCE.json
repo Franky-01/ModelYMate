@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 2,
+  "recordedAt": "2026-11-12T13:07:47.372Z",
+  "status": "local-adapter-and-visual-check-complete-with-source-fidelity-limitations",
+  "requestedVehicle": "2013-era Model S",
+  "displayIdentity": "Early large nose-cone Model S generation",
+  "sources": [
+    {
+      "title": "Tesla Model-S",
+      "author": "oriolfrancin99",
+      "authorUrl": "https://sketchfab.com/oriolfrancin99",
+      "source": "https://sketchfab.com/3d-models/tesla-model-s-79cc7a8accfb421fa5981d4186fbfd75",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "parts": "Early large nose-cone exterior, doors, glazing, lamps and trim",
+      "mirror": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-115/79cc7a8accfb421fa5981d4186fbfd75.glb",
+      "originalBytes": 9252712,
+      "originalSha256": "ae7a998f9ed9779ad013066a876b7b9570c65740815f7bd734d53cb5e5fba113",
+      "evidence": "Official public metadata inspected during acquisition agrees with GLB asset.extras. Ai2 Objaverse mirrors the CC-licensed object; dataset metadata does not replace its individual license."
+    },
+    {
+      "title": "Tesla Model S",
+      "author": "iSteven",
+      "authorUrl": "https://sketchfab.com/Steven007",
+      "source": "https://sketchfab.com/3d-models/tesla-model-s-1360e3cf7323487eaba8ce94279229b6",
+      "license": "CC-BY-NC-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-nc/4.0/",
+      "parts": "Old vertical-display cabin and four wheel/brake assemblies only. Facelift body expressly excluded.",
+      "mirror": "https://github.com/aditano/tesla-studio/tree/8ac1525bc4d007f2b2e29365fb352a840f1532be/public/models/model-s-heritage",
+      "originalPackedBytes": 1749920,
+      "originalPackedSha256": "4f4021476998dbb1dcc5e5ee655058dbd8fd8a538cf8943017ba01289c9bc12d",
+      "evidence": "Preserved mirror license.txt and original glTF asset.extras match author/source/CC-BY-NC-4.0. Current original API reported not downloadable with empty license; no claim of a current original-page download."
+    }
+  ],
+  "license": "Composite contains CC BY 4.0 and CC BY-NC 4.0 material. Credit both creators and retain noncommercial use for this combined model.",
+  "limitations": [
+    "Original artist did not identify an exact model year; do not claim an OEM-accurate 2013 trim.",
+    "Source front/rear fenders and lower sill contain uneven or simplified surfaces. Limited fairing and welded normals improve appearance but do not turn the source into a manufacturer CAD replica.",
+    "Donor cabin is low-detail and adapted to fit. Added door cards, compartment liners and presentation hinge positions are approximations, not factory mechanisms.",
+    "Tire image maps are omitted from the composite; source wheel geometry is preserved.",
+    "Physical iPhone/Safari/Android performance and final production deployment have not been tested here."
+  ],
+  "modifications": [
+    {
+      "name": "Plane005_metalic_0",
+      "operation": "Boundary-preserving Taubin smoothing, 24 alternating passes with 0.012 m cap; rear side fairing 96 passes with 0.035 m cap; welded area-weighted normals",
+      "vertices": 32155,
+      "welded": 30935,
+      "maxShift": 0.03499999999999998
+    },
+    {
+      "name": "Box005_metalic_0",
+      "operation": "Boundary-preserving Taubin smoothing, 24 alternating passes with 0.012 m cap; rear side fairing 96 passes with 0.035 m cap; welded area-weighted normals",
+      "vertices": 3823,
+      "welded": 2774,
+      "maxShift": 0.01135853562465652
+    },
+    {
+      "name": "Box005_metalic_0",
+      "operation": "Reduced oversized mirror lateral protrusion toward 2.2 m overall width"
+    },
+    {
+      "name": "Box005_mirall_0",
+      "operation": "Reduced oversized mirror lateral protrusion toward 2.2 m overall width"
+    },
+    {
+      "name": "VidreDavant_metalic_0",
+      "operation": "Boundary-preserving Taubin smoothing, 24 alternating passes with 0.012 m cap; rear side fairing 96 passes with 0.035 m cap; welded area-weighted normals",
+      "vertices": 24,
+      "welded": 18,
+      "maxShift": 0.002822209074952934
+    },
+    {
+      "name": "PortaDavant_metalic_0",
+      "operation": "Boundary-preserving Taubin smoothing, 24 alternating passes with 0.012 m cap; rear side fairing 96 passes with 0.035 m cap; welded area-weighted normals",
+      "vertices": 880,
+      "welded": 858,
+      "maxShift": 0.012000000000000056
+    },
+    {
+      "name": "Object003_metalic_0",
+      "operation": "Boundary-preserving Taubin smoothing, 24 alternating passes with 0.012 m cap; rear side fairing 96 passes with 0.035 m cap; welded area-weighted normals",
+      "vertices": 1824,
+      "welded": 1694,
+      "maxShift": 0.034123275644908906
+    },
+    {
+      "name": "Box020_metalic_0",
+      "operation": "Removed duplicated mirror assembly"
+    },
+    {
+      "name": "Box020_mirall_0",
+      "operation": "Removed duplicated mirror assembly"
+    },
+    {
+      "name": "object001_int_0",
+      "operation": "Lowered donor cabin 55 mm; removed donor rear cargo shelf behind z=-1.25 m so it does not obstruct the early hatch opening; runtime cargo liner fills this cavity"
+    },
+    {
+      "operation": "Removed original distorted wheel assemblies; reused separately attributed iSteven wheels, straightened their pose and aligned the rear axle to the early wheel arches."
+    },
+    {
+      "operation": "Runtime geometric articulation separates source early doors/windows/lids and adds simple door cards, armrests, storage pockets, front firewall and recessed cargo liners. Fixed windshield stays attached to the body."
+    }
+  ],
+  "packagedAsset": {
+    "name": "model.glb",
+    "bytes": 2232360,
+    "sha256": "45a84ac0ebc3bb06cd681507ed095bf15a82f253e246a994689eeb33aecf6289",
+    "compression": "EXT_meshopt_compression; byte-exact decoded views; no reordering or quantization"
+  },
+  "publication": {
+    "date": "2026-11-12",
+    "repository": "https://github.com/Franky-01/ModelYMate",
+    "note": "Public redistribution with original attribution and asset licenses retained. Historical source inspection details are not manufacturer certification or physical-device acceptance."
+  }
+}

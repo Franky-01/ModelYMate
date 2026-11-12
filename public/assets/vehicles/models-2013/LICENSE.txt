@@ -1,0 +1,11 @@
+This work includes parts based on "Tesla Model-S" (https://sketchfab.com/3d-models/tesla-model-s-79cc7a8accfb421fa5981d4186fbfd75) by oriolfrancin99 (https://sketchfab.com/oriolfrancin99), licensed under CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/).
+Parts: Early large nose-cone exterior, doors, glazing, lamps and trim
+
+This work includes parts based on "Tesla Model S" (https://sketchfab.com/3d-models/tesla-model-s-1360e3cf7323487eaba8ce94279229b6) by iSteven (https://sketchfab.com/Steven007), licensed under CC-BY-NC-4.0 (https://creativecommons.org/licenses/by-nc/4.0/).
+Parts: Old vertical-display cabin and four wheel/brake assemblies only. Facelift body expressly excluded.
+
+Combined asset: noncommercial use only; retain both author credits.
+
+Changes: normalized dimensions/heading, bounded surface fairing and welded normals, mirror deduplication and resizing, separately attributed cabin and wheels, fitting and cargo-shelf removal, material role/lamps correction, runtime articulated parts, and simple inner door/compartment liners.
+
+Identity and quality: early Model S nose-cone generation. Exact 2013 trim is not supplied or manufacturer-verified. Original fender/sill unevenness and low-detail cabin remain; this is an adapted visualization, not OEM CAD.

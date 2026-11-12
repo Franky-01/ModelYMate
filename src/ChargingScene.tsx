@@ -1,15 +1,13 @@
 /// <reference types="vite/client" />
 import {useEffect, useRef, useState} from 'react';
 import * as THREE from 'three';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
-import {request, RequestFailure} from './request';
+import {loadVehicle} from './vehicle-loader';
+import type {VehicleModelID} from './vehicle-types';
 
-type Props = {soc: number | null; limit: number | null; active: boolean};
+type Props = {soc: number | null; limit: number | null; active: boolean; modelId?: VehicleModelID};
 type Wheel = {axle: 'front' | 'rear'; center: number[]; radiusMetres: number; components: string[]};
 type Audit = {groundingTranslation: number[]; wheels: Wheel[]};
 type Phase = 'loading' | 'ready' | 'error';
-const assetURL = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`;
 const percentage = (value: number | null) => typeof value === 'number' && Number.isFinite(value) ? THREE.MathUtils.clamp(value, 0, 100) : null;
 
 // Each instance parses its own asset and owns its GPU resources. The garage's
@@ -110,17 +108,9 @@ class ChargingEngine {
   async load() {
     let model: THREE.Group | null = null;
     try {
-      const fetchAsset = <T,>(name: string, consume: (response: Response) => Promise<T>) => request(assetURL(name), response => {
-        if (!response.ok) throw new RequestFailure('http', '充电视图暂不可用', response.status);
-        return consume(response);
-      }, {signal: this.abort.signal, timeoutMs: 120000});
-      const [bytes, audit] = await Promise.all([
-        fetchAsset('vehicle.glb', response => response.arrayBuffer()),
-        fetchAsset('vehicle.audit.json', response => response.json() as Promise<Audit>),
-      ]);
-      if (this.disposed) return;
-      const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(bytes, assetURL(''));
-      model = gltf.scene;
+      const vehicle = await loadVehicle(this.getProps().modelId ?? 'modely-2025', this.abort.signal);
+      const audit = vehicle.audit;
+      model = vehicle.scene;
       if (this.disposed) {disposeObject(model); return;}
       if (!Array.isArray(audit.wheels) || audit.wheels.length !== 4 || !audit.wheels.every(wheel =>
         wheel.center.length === 3 && wheel.center.every(Number.isFinite) && Number.isFinite(wheel.radiusMetres) && wheel.radiusMetres > 0)) throw new Error('Invalid wheel geometry audit');
@@ -133,7 +123,17 @@ class ChargingEngine {
       this.addShadow(audit);
       this.sync(); this.resize();
       // Compile once before exposing the canvas, so the first visible state is complete.
-      await this.renderer.compileAsync(this.scene, this.camera);
+      this.renderer.compile(this.scene, this.camera);
+      const context = this.renderer.getContext();
+      const parallel = this.renderer.extensions.get('KHR_parallel_shader_compile') as {COMPLETION_STATUS_KHR:number} | null;
+      const programs = (this.renderer.info.programs ?? []).map(program => program.program as WebGLProgram);
+      const deadline = performance.now() + 30000;
+      // Three's compileAsync timer can outlive a disposed scene. Stop our own
+      // polling before it touches shader objects released by a model switch.
+      while (!this.disposed && parallel && programs.some(program => !context.getProgramParameter(program,parallel.COMPLETION_STATUS_KHR))) {
+        if (performance.now() >= deadline) throw new Error('Charging shaders timed out');
+        await new Promise(resolve => setTimeout(resolve,10));
+      }
       if (this.disposed) return;
       this.ready = true; this.onPhase('ready'); this.dirty = true; this.schedule();
     } catch {
@@ -324,10 +324,10 @@ export default function ChargingScene(props: Props) {
       setPhase('error');
       return () => {mounted = false;};
     }
-  }, [attempt]);
+  }, [attempt, props.modelId]);
   useEffect(() => {engine.current?.sync();}, [props.soc, props.limit, props.active]);
   const soc = percentage(props.soc);
-  return <div className="charging-scene" data-phase={phase} role="group" aria-label={`车辆电池透视图，${soc === null ? '当前电量未知' : `当前电量 ${soc}%`}`}>
+  return <div className="charging-scene" data-model={props.modelId ?? 'modely-2025'} data-phase={phase} role="group" aria-label={`车辆电池透视图，${soc === null ? '当前电量未知' : `当前电量 ${soc}%`}`}>
     <div ref={host} className="charging-scene-canvas" style={{visibility: phase === 'ready' ? 'visible' : 'hidden'}} />
     {phase !== 'ready' && <div className="charging-scene-message" role="status">
       <span>{phase === 'loading' ? '正在准备充电视图' : '充电视图暂不可用'}</span>

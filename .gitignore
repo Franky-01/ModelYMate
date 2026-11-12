@@ -41,3 +41,7 @@ Thumbs.db
 .vscode/
 __pycache__/
 *.pyc
+
+# Local vehicle intake, validation, and packaging work
+.model-intake-*/
+.model-validation-*/

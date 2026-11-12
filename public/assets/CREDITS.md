@@ -152,3 +152,33 @@ The GLB, source rig and lossless export audit remain unchanged.
 The center display housing, stand and screen artwork are local presentation
 additions. Its static interface depicts no live speed, range, location or
 navigation information. No external image, font or model is downloaded.
+
+## Additional display models (2026-11-12)
+
+These six models are bundled locally for the web application's display
+selector. They are third-party models with the licenses below, not Tesla CAD.
+The existing Juniper GLB and its original attribution remain unchanged.
+
+| Display variant | Artist | Model license | Detailed provenance |
+| --- | --- | --- | --- |
+| Model 3, 2018 | Ameer Studio | CC BY 4.0 | [Source and adaptations](vehicles/model3-2018/LICENSE.md) |
+| Model 3 Highland, 2024 | tonielpro520 | CC BY 4.0 | [Source and adaptations](vehicles/model3-2024/LICENSE.md) |
+| Early Model S | oriolfrancin99 (early exterior); iSteven (cabin and wheels) | CC BY 4.0 and CC BY-NC 4.0; combined asset is noncommercial | [Source and adaptations](vehicles/models-2013/ATTRIBUTION.txt) |
+| 2021-refresh Model S Plaid | 3D Hawk | CC BY 4.0 | [Source and adaptations](vehicles/models-2021/ATTRIBUTION.txt) |
+| Older Model X | Abdul.Hannan | CC BY 4.0 | [Source and adaptations](vehicles/modelx-2020/ATTRIBUTION.txt) |
+| Model Y, 2021 | tonielpro520 | CC BY 4.0 | [Source and adaptations](vehicles/modely-2021/ATTRIBUTION.txt) |
+
+Adaptations normalize coordinates and scale; separate real source panels and
+wheel components; assign presentation pivots, glass and paint materials; and
+provide continuous selectable livery coordinates. X uses two joints per rear
+door. Missing compartment liners, charge sockets and the older X's approximate
+five-seat cabin are project additions. The early S combines the credited early
+nose-cone exterior with the credited donor's cabin and wheels; it is labelled
+by generation because the exterior artist did not specify an exact model year.
+The old X's exact year and seating trim are likewise not manufacturer-verified.
+
+Transport compression preserves decoded geometry and texture bytes; separate
+runtime visual repairs are described per model, including overlapping Highland
+wheel inserts. These web animations are local visualizations of reported state,
+not remote vehicle controls or factory-calibrated mechanisms. Selecting a
+display model does not change TeslaMate vehicle identities, records or metrics.

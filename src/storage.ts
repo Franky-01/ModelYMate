@@ -76,6 +76,6 @@ export function createStoreAccess(getStorage:()=>Storage) {
 }
 const browserStore = createStoreAccess(()=>localStorage);
 export const {retryRecovery, storageProblem, recoveryProblem, readStore, writeStore} = browserStore;
-export type GarageSettings = {paint:string;finish:string;livery:string;environment:string;rain:boolean;arrival:boolean};
+export type GarageSettings = {paint:string;finish:string;livery:string;environment:string;rain:boolean;arrival:boolean;vehicleModels?:Record<string,string>};
 export const garageDefaults:GarageSettings = {paint:'pearl',finish:'gloss',livery:'plain',environment:'studio',rain:false,arrival:true};
 export function scopedKey(scope:string, car:number, kind:string) { return `${scope}.${car}.${kind}`; }

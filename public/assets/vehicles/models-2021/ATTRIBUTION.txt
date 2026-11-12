@@ -1,0 +1,5 @@
+This work is based on "Tesla Model S Plaid 2021" (https://sketchfab.com/3d-models/tesla-model-s-plaid-2021-481866a0b23143b18e8e4e7f642cee53) by 3D Hawk (https://sketchfab.com/lachie.mullard), licensed under CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/).
+
+Changes: Normalized dimensions/transforms, reconstructed connected surfaces across material chunks, grouped small islands, optimized and meshopt-compressed without geometry simplification. Upstream runtime battery additions are not included in the downloaded GLB. Runtime adaptation converts units and heading, re-centres and grounds source geometry, restores early front-wheel straight pose, separates existing surfaces into four doors, front lid, rear hatch and charge flap with presentation pivots, and assigns configurable material roles while retaining source maps. Existing imported cabin geometry is retained. No factory articulation data is claimed.
+
+Identity: Source title and asset.extras state 2021; source material names use M_2022_Tesla_Model_S_Plaid. Treat as 2021-refresh Plaid generation candidate pending visual comparison, not confirmed exact model-year/trim replica.

@@ -1,0 +1,21 @@
+2021 Tesla Model Y by tonielpro520
+Author: https://sketchfab.com/tonielpro520
+Original work: https://sketchfab.com/3d-models/2021-tesla-model-y-59e2ead369984b1a85c800ff6cf6789d
+Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+
+Complete source package acquired from public mirror:
+https://github.com/ShineTJKU/Ag/tree/0347eb8e199bd0f5982e623887997f1cf07795d8/AegisDrive_UI_References/2021_tesla_model_y
+Its license.txt and glTF metadata identify the original work above.
+
+Changes by ModelYMate: baked transforms and normalized front direction,
+separated existing door/glass/lamp/hood/trunk/wheel parts for articulation,
+adjusted material PBR values and embedded both original textures. All actual
+source triangles and source interior retained. Application adds the charging
+socket and frunk liner.
+
+Lossless transport compression: EXT_meshopt_compression with unchanged decoded
+vertex attributes and original index order (INDICES mode), no quantization or
+geometry simplification. Original image bytes retained verbatim.
+Final model.glb: 20915000 bytes
+SHA-256: 6c0eb5be88e506ff8351503d3a2b5c5665350282315a4de02522ee468e4dbbbf

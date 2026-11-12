@@ -15,6 +15,19 @@ ModelYMate 对已署名的模型进行了曲面与材质调整、面板开合结
 
 复制、修改或分享模型及其衍生版本时，应遵守 CC BY-NC 4.0，包括署名、保留许可链接、说明修改和非商业使用条件。**模型不在本项目 MIT 授权范围内；本仓库没有提供模型的商业使用授权。** 完整来源、修改历史与几何审计说明保留在 [CREDITS.md](public/assets/CREDITS.md)。
 
+## 新增六款车辆
+
+| 模型 | 作者 | 许可与改编说明 |
+| --- | --- | --- |
+| Model 3 2018 | Ameer Studio | [CC BY 4.0](public/assets/vehicles/model3-2018/LICENSE.md) |
+| Model 3 2024 Highland | tonielpro520 | [CC BY 4.0](public/assets/vehicles/model3-2024/LICENSE.md) |
+| 早期 Model S | oriolfrancin99 外观；iSteven 内饰与轮组 | [CC BY 4.0 + CC BY-NC 4.0](public/assets/vehicles/models-2013/ATTRIBUTION.txt)，组合模型仅限非商业使用 |
+| Model S Plaid 2021 改款 | 3D Hawk | [CC BY 4.0](public/assets/vehicles/models-2021/ATTRIBUTION.txt) |
+| 老款 Model X | Abdul.Hannan | [CC BY 4.0](public/assets/vehicles/modelx-2020/ATTRIBUTION.txt) |
+| Model Y 2021 | tonielpro520 | [CC BY 4.0](public/assets/vehicles/modely-2021/ATTRIBUTION.txt) |
+
+ModelYMate 保留来源及镜像归属，并记录坐标归一、源部件分组、材质、展示关节和无损传输压缩等改编。早期 S 使用分别署名的外观与内饰/轮组，老款 X 的近似五座内饰和部分衬板为项目添加。来源中不可核验的精确年款、内饰细节和机构均不冒称原厂精度；各模型的许可保持独立，代码 MIT 不覆盖这些网格。
+
 ## 原创环境与界面资源
 
 `public/assets/Atelier.hdr` 是 ModelYMate 程序生成的中性摄影棚环境，不含下载图片。项目原创图标、显示屏示意图及其他原创展示代码采用本项目 MIT 许可；该授权不覆盖车辆网格。CREDITS 中提到的历史 Poly Haven 环境并非当前随附的 Atelier 文件。

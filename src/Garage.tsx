@@ -1,8 +1,6 @@
 /// <reference types="vite/client" />
 import {useEffect, useRef, useState} from 'react';
 import * as THREE from 'three';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {HDRLoader} from 'three/addons/loaders/HDRLoader.js';
 import {RectAreaLightUniformsLib} from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import {doorSignals, motionSpeed} from './core.mjs';
@@ -14,8 +12,11 @@ import GarageLoading from './GarageLoading';
 import {GarageCharger} from './garage-charging';
 import {garageChargingState} from './garage-charging-state.mjs';
 import './garage-charging.css';
+import {loadVehicle} from './vehicle-loader';
+import {hingePoseAngle, type VehicleModelID, type HingeAudit, type WheelAudit, type VehicleAudit as Audit} from './vehicle-types';
 
 type Props = {
+  modelId?: VehicleModelID;
   presentation?: 'hero' | 'preview';
   settings: GarageSettings;
   status: any | null;
@@ -24,9 +25,6 @@ type Props = {
   active: boolean;
   onReady?: (info: {triangles: number; nodes: number; renderer: string}) => void;
 };
-type HingeAudit = {stateKey: string; name: string; axis: number[]; openRadians: number; durationSeconds: number};
-type WheelAudit = {name: string; components: string[]; center: number[]; radiusMetres: number; axle: 'front' | 'rear'};
-type Audit = {nodeCount: number; geometryCount: number; triangles: number; hinges: HingeAudit[]; wheels: WheelAudit[]; groundingTranslation: number[]};
 type Hinge = HingeAudit & {node: THREE.Object3D; closed: THREE.Quaternion; axisVector: THREE.Vector3; value: number; from: number; target: number; elapsed: number};
 type Wheel = {pivot: THREE.Group; roll: THREE.Group; front: boolean; radius: number; angle: number};
 type Fixture = {status: any; units: any; received: number | null};
@@ -150,6 +148,7 @@ class GarageEngine {
   private renderMilliseconds = 0;
   private settingsKey = '';
   private paintKey = '';
+  private nativeMaterials = false;
   private disposed = false;
   private ready = false;
   private dirty = true;
@@ -269,25 +268,33 @@ class GarageEngine {
         if (!response.ok) throw new RequestFailure('http', `Asset ${name}: HTTP ${response.status}`, response.status);
         return consume(response);
       }, {signal: this.abort.signal, timeoutMs: 120000});
-      const [gltfBytes, hdrBytes, audit] = await Promise.all([
-        fetchAsset('vehicle.glb', response => response.arrayBuffer()),
+      const [vehicle, hdrBytes] = await Promise.all([
+        loadVehicle(this.props().modelId ?? 'modely-2025', this.abort.signal).then(vehicle => {
+          if (this.disposed) {freeObject(vehicle.scene); throw new DOMException('Disposed', 'AbortError');}
+          this.model = vehicle.scene;
+          return vehicle;
+        }),
         fetchAsset('Atelier.hdr', response => response.arrayBuffer()),
-        fetchAsset('vehicle.audit.json', response => response.json() as Promise<Audit>),
       ]);
       if (this.disposed) return;
-      const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(gltfBytes, assetURL(''));
-      if (this.disposed) {freeObject(gltf.scene); return;}
-      this.model = gltf.scene; this.audit = audit;
+      const audit = vehicle.audit;
+      this.model = vehicle.scene; this.audit = audit;
       await this.loadingTurn();
-      if (this.disposed) {freeObject(gltf.scene); this.model = null; return;}
+      if (this.disposed) return;
       const counts = {nodes: 0, meshes: 0, triangles: 0};
       this.model.traverse(node => {
         if (typeof node.userData.sourceNodeIndex === 'number') counts.nodes++;
         if (node instanceof THREE.Mesh) {counts.meshes++; counts.triangles += (node.geometry.index?.count ?? node.geometry.attributes.position.count) / 3;}
       });
       if (counts.nodes !== audit.nodeCount || counts.meshes !== audit.geometryCount || counts.triangles !== audit.triangles) throw new Error('Articulated asset counts differ from its lossless export audit.');
-      this.materialsPrivate(this.model);
-      this.cabin = restoreCabin(this.model, makeCenterDisplayTexture());
+      this.nativeMaterials = vehicle.nativeMaterials;
+      this.materialsPrivate(this.model, vehicle.nativeMaterials);
+      this.paintKey = '';
+      if (!vehicle.nativeMaterials) this.cabin = restoreCabin(this.model, makeCenterDisplayTexture());
+      else {
+        const fill = new THREE.PointLight(0xf1f5fa, 1.25, 3.5, 2);
+        fill.name = 'vehicle-cabin-fill'; fill.position.set(0, 1.25, .15); this.model.add(fill);
+      }
       this.car.add(this.model); this.model.position.fromArray(audit.groundingTranslation);
       this.model.updateMatrixWorld(true);
       for (const wheel of audit.wheels) {
@@ -298,6 +305,11 @@ class GarageEngine {
           const component = this.model.getObjectByName(name);
           if (!component) throw new Error(`Wheel component missing: ${name}`);
           roll.attach(component);
+        }
+        for (const name of wheel.steeringComponents ?? []) {
+          const component = this.model.getObjectByName(name);
+          if (!component) throw new Error(`Steering component missing: ${name}`);
+          pivot.attach(component);
         }
         this.wheels.push({pivot, roll, front: wheel.axle === 'front', radius: wheel.radiusMetres, angle: 0});
       }
@@ -313,7 +325,8 @@ class GarageEngine {
         // Capture the closed lid's surface before its hinge moves. The socket
         // belongs to the body, so opening the flap never drags the connector.
         const box = new THREE.Box3().setFromObject(chargePort.node);
-        const socket = box.getCenter(new THREE.Vector3()); socket.x = box.min.x - .012;
+        const socket = vehicle.chargeSocket?.clone() ?? box.getCenter(new THREE.Vector3());
+        if (!vehicle.chargeSocket) socket.x = box.min.x - .012;
         this.charger = new GarageCharger(socket); this.car.add(this.charger.root); this.chargingKey = '';
       }
       this.addContactShadows();
@@ -332,6 +345,7 @@ class GarageEngine {
       await this.loadingTurn();
       if (!await this.prepare()) return;
     } catch (error) {
+      if (this.model && !this.model.parent) {freeObject(this.model); this.model = null;}
       this.loadFailed(error);
     }
   }
@@ -387,6 +401,7 @@ class GarageEngine {
   sync() {
     if (this.disposed) return;
     const props = this.props();
+    if (this.qaEnabled && props.active && this.qaInspector) (window as any).__garage = this.qaInspector;
     if (props.active !== this.lastActive) {
       this.lastActive = props.active;
       if (props.active) {this.entryRequested = true; if (this.ready) this.resize();}
@@ -414,6 +429,7 @@ class GarageEngine {
         this.paintKey = paintKey;
         const oldLivery = this.livery;
         this.livery = settings.livery === 'plain' ? null : makeLivery(settings.paint, settings.livery);
+        if (this.livery && this.nativeMaterials) this.livery.channel = 1;
         const finish = FINISH[settings.finish] ?? FINISH.gloss;
         for (const material of this.paints) {
           const hadMap = material.map !== null;
@@ -442,7 +458,7 @@ class GarageEngine {
     this.rain.visible = settings.rain && !this.reduceMotion.matches;
     this.road.visible = this.speed !== 0 && !this.reduceMotion.matches;
     this.dirty = true;
-    this.startEntryIfEligible(); this.refreshSchedule();
+    this.startEntryIfEligible(); if (this.ready) this.fitHeroCamera(); this.refreshSchedule();
   }
 
   private currentTelemetry() {return this.fixture ?? this.props();}
@@ -483,10 +499,10 @@ class GarageEngine {
   }
 
   private poseHinge(hinge: Hinge) {
-    hinge.node.quaternion.copy(hinge.closed).multiply(this.temporaryQuaternion.setFromAxisAngle(hinge.axisVector, hinge.value));
+    hinge.node.quaternion.copy(hinge.closed).multiply(this.temporaryQuaternion.setFromAxisAngle(hinge.axisVector, hingePoseAngle(hinge, hinge.value)));
   }
 
-  private materialsPrivate(model: THREE.Object3D) {
+  private materialsPrivate(model: THREE.Object3D, native = false) {
     const oldMaterials = new Set<THREE.Material>();
     model.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
@@ -494,6 +510,21 @@ class GarageEngine {
       const physical = originals.map(original => {
         oldMaterials.add(original);
         const old = original as THREE.MeshStandardMaterial;
+        if (native) {
+          const material = new THREE.MeshPhysicalMaterial();
+          // Preserve the source cabin, lamp and trim maps. The legacy Juniper
+          // follows its unchanged material restoration below.
+          if (old instanceof THREE.MeshPhysicalMaterial) material.copy(old);
+          else THREE.MeshStandardMaterial.prototype.copy.call(material, old);
+          material.envMapIntensity = old.name === 'glass' ? .4 : 1;
+          if (old.name === 'exterior_paint') this.paints.push(material);
+          if (old.name === 'glass') {
+            material.transparent = true; material.opacity = Math.min(material.opacity,.28);
+            material.depthWrite = false; material.side = THREE.DoubleSide; material.forceSinglePass = true;
+            material.transmission = 0; node.castShadow = false;
+          }
+          return material;
+        }
         const material = new THREE.MeshPhysicalMaterial({
           name: old.name, color: old.color.clone(), metalness: old.metalness, roughness: old.roughness,
           emissive: old.emissive.clone(), emissiveIntensity: old.emissiveIntensity,
@@ -714,7 +745,7 @@ class GarageEngine {
   }
 
   private fitHeroCamera() {
-    if ((!this.protectedTop && !this.charger?.root.visible) || !this.model || !this.lastActive || this.entryRunning) return;
+    if (!this.model || !this.lastActive || this.entryRunning) return;
     this.collectFitPoints(); this.car.updateWorldMatrix(true, true); this.positionCamera();
     const width = this.host.clientWidth, height = this.host.clientHeight;
     if (!width || !height) return;
@@ -734,7 +765,7 @@ class GarageEngine {
   }
 
   private updateZoomLimits() {
-    const minimum = this.protectedTop || this.charger?.root.visible ? this.minimumZoomDistance : 5.8;
+    const minimum = this.minimumZoomDistance;
     const maximum = Math.max(11.5, minimum + 1.5);
     const limits = {canZoomIn: this.zoomDistance > minimum + .05, canZoomOut: this.zoomDistance < maximum - .05};
     const key = String(limits.canZoomIn) + ':' + String(limits.canZoomOut);
@@ -803,6 +834,7 @@ class GarageEngine {
     const inspector = {
       get ready() {return engine.ready && !engine.disposed && !engine.contextLost;},
       get nodes() {return engine.audit?.nodeCount ?? 0;},
+      get modelId() {return engine.props().modelId ?? 'modely-2025';},
       get geometry() {return engine.audit?.geometryCount ?? 0;},
       get triangles() {return engine.audit?.triangles ?? 0;},
       get interior() {return engine.cabin ? {...engine.cabin} : null;},
@@ -820,8 +852,10 @@ class GarageEngine {
       get paused() {return !engine.canRender();},
       get errors() {return [...engine.errors];},
       get settings() {return {...engine.props().settings};},
+      get paintMaterials() {return engine.paints.map(material => ({color:material.color.getHexString(),map:!!material.map,roughness:material.roughness,metalness:material.metalness}));},
       get appearance() {return {theme: document.documentElement.dataset.theme, background: (engine.scene.background as THREE.Color).getHexString(), fog: (engine.scene.fog as THREE.Fog).color.getHexString(), floor: engine.floorMaterial.color.getHexString()};},
       get hinges() {return Object.fromEntries(engine.hinges.map(hinge => [hinge.stateKey, {name: hinge.name, angle: hinge.value, target: hinge.target, position: hinge.node.position.toArray(), quaternion: hinge.node.quaternion.toArray()}]));},
+      get joints() {return engine.hinges.map(hinge => ({stateKey:hinge.stateKey,name:hinge.name,motion:hinge.motion,angle:hinge.value,pose:hingePoseAngle(hinge,hinge.value),target:hinge.target,quaternion:hinge.node.quaternion.toArray()}));},
       get wheels() {return engine.wheels.map(wheel => ({name: wheel.pivot.name, front: wheel.front, angle: wheel.roll.rotation.x, steering: wheel.pivot.rotation.y, radius: wheel.radius, center: wheel.pivot.position.toArray()}));},
       get performance() {return {frames: engine.frames, lastRenderMs: engine.renderMilliseconds, pixelRatio: engine.renderer.getPixelRatio(), calls: engine.renderer.info.render.calls, geometries: engine.renderer.info.memory.geometries, textures: engine.renderer.info.memory.textures};},
       // Fixture injection exists only in explicit local QA mode. It drives this
@@ -838,7 +872,7 @@ class GarageEngine {
   private updateQADOM() {
     if (!this.qaEnabled || this.disposed) return;
     this.host.dataset.garageQa = JSON.stringify({
-      ready: this.ready && !this.contextLost, nodes: this.audit?.nodeCount ?? 0,
+      ready: this.ready && !this.contextLost, modelId:this.props().modelId ?? 'modely-2025', nodes: this.audit?.nodeCount ?? 0,
       geometry: this.audit?.geometryCount ?? 0, triangles: this.audit?.triangles ?? 0,
       interior: this.cabin,
       entryCount: this.entryCount, entryPhase: this.entryPhase, vehiclePosition: this.car.position.toArray(),
@@ -863,7 +897,8 @@ class GarageEngine {
     canvas.removeEventListener('pointerdown', this.pointerDown); canvas.removeEventListener('pointermove', this.pointerMove);
     canvas.removeEventListener('pointerup', this.pointerUp); canvas.removeEventListener('pointercancel', this.pointerUp);
     canvas.removeEventListener('webglcontextlost', this.lostContext); canvas.removeEventListener('webglcontextrestored', this.restoredContext);
-    freeObject(this.scene); this.environment?.dispose(); this.livery?.dispose(); this.fitPoints = [];
+    if (this.model && !this.model.parent) freeObject(this.model);
+    freeObject(this.scene); this.model = null; this.environment?.dispose(); this.livery?.dispose(); this.fitPoints = [];
     this.scene.clear(); this.renderer.renderLists.dispose(); this.renderer.dispose(); this.renderer.forceContextLoss(); canvas.remove();
     delete this.host.dataset.garageQa;
     if (this.qaEnabled && (window as any).__garage === this.qaInspector) delete (window as any).__garage;
@@ -871,14 +906,19 @@ class GarageEngine {
 }
 
 export default function Garage(props: Props) {
+  const [loadedModelId,setLoadedModelId] = useState<VehicleModelID>(props.modelId ?? 'modely-2025');
+  const [activated,setActivated] = useState(props.active);
   const host = useRef<HTMLDivElement>(null), engine = useRef<GarageEngine | null>(null), latest = useRef(props);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState(''), [attempt, setAttempt] = useState(0);
   const [zoomLimits,setZoomLimits] = useState<ZoomLimits>({canZoomIn:true,canZoomOut:true});
   const [charging,setCharging] = useState(() => garageChargingState(props.status, props.received));
-  latest.current = props;
+  latest.current = {...props,modelId:loadedModelId};
+  // A hidden homepage retains its existing scene. Load the newly selected model
+  // when that scene becomes visible, avoiding a second offscreen preparation.
+  useEffect(() => {if (props.active) {setActivated(true); setLoadedModelId(props.modelId ?? 'modely-2025');}}, [props.active,props.modelId]);
   useEffect(() => {
-    if (!host.current) return;
+    if (!host.current || !activated) return;
     let mounted = true;
     setPhase('loading'); setMessage('');
     try {
@@ -889,14 +929,14 @@ export default function Garage(props: Props) {
       setPhase('error'); setMessage('当前浏览器无法打开车库');
       return () => {mounted = false;};
     }
-  }, [attempt]);
+  }, [attempt, loadedModelId, activated]);
   useEffect(() => {engine.current?.sync();}, [props.settings, props.status, props.units, props.received, props.active]);
   useEffect(() => {
     const resume = () => {if (!document.hidden && phase === 'error') setAttempt(value => value + 1);};
     document.addEventListener('visibilitychange', resume); window.addEventListener('online', resume); window.addEventListener('pageshow', resume);
     return () => {document.removeEventListener('visibilitychange', resume); window.removeEventListener('online', resume); window.removeEventListener('pageshow', resume);};
   }, [phase]);
-  return <div className={'garage-canvas'+(props.presentation==='hero'?' garage-canvas-hero':'')+(charging.connected?' garage-connected':'')} style={{position: 'relative', width: '100%', height: '100%', minHeight: 300, overflow: 'hidden'}} role="group" aria-label="车辆三维车库，可水平拖动旋转，双指缩放">
+  return <div className={'garage-canvas'+(props.presentation==='hero'?' garage-canvas-hero':'')+(charging.connected?' garage-connected':'')} data-model={loadedModelId} style={{position: 'relative', width: '100%', height: '100%', minHeight: 300, overflow: 'hidden'}} role="group" aria-label="车辆三维车库，可水平拖动旋转，双指缩放">
     <div ref={host} style={{width: '100%', height: '100%', position: 'absolute', inset: 0}} />
     <div className="garage-vignette" aria-hidden="true" />
     {phase === 'ready' && charging.connected && props.presentation !== 'hero' && <div className="garage-charge-status" role="status"><span aria-hidden="true">ϟ</span>{charging.label}</div>}
