@@ -80,7 +80,7 @@ export function shortestDrivingPath(result) {
 // Browser memory only: no coordinates or planned routes are stored on disk.
 // Deduplicate requests across route/speed/elevation views and limit AMap concurrency.
 export function createGapRouter(AMap,{timeoutMs=12000,concurrency=2,maxEntries=128,ttlMs=600000,failureTtlMs=30000}={}) {
-  const cache=new Map(),queue=[];
+  const cache=new Map(),pending=new Map(),queue=[];
   let active=0,plugin=null;
   function loadDriving() {
     if(AMap.Driving)return Promise.resolve(true);
@@ -107,24 +107,36 @@ export function createGapRouter(AMap,{timeoutMs=12000,concurrency=2,maxEntries=1
   function drain() {
     while(active<concurrency && queue.length) {
       const entry=queue.shift();
-      if(entry.signals.every(signal=>signal?.aborted)){cache.delete(entry.key);entry.resolve(null);continue;}
+      if(entry.signals.every(signal=>signal?.aborted)){pending.delete(entry.key);entry.resolve(null);continue;}
+      // Once started, a shared SDK search runs to completion or timeout.
+      // Cached results never need to keep the callers' AbortSignals alive.
+      entry.signals=null;
       active++;
       search(entry.from,entry.to).then(path=>{
-        entry.settled=true;entry.expires=Date.now()+(path?ttlMs:failureTtlMs);entry.resolve(path);
-      }).catch(()=>{cache.delete(entry.key);entry.resolve(null);}).finally(()=>{active--;drain();});
+        if(maxEntries>0){
+          const now=Date.now();
+          for(const [key,value] of cache)if(value.expires<=now)cache.delete(key);
+          if(cache.size>=maxEntries)cache.delete(cache.keys().next().value);
+          cache.set(entry.key,{path,expires:now+(path?ttlMs:failureTtlMs)});
+        }
+        pending.delete(entry.key);entry.resolve(path);
+      }).catch(()=>{pending.delete(entry.key);entry.resolve(null);}).finally(()=>{active--;drain();});
     }
   }
   /** @param {number[]} from @param {number[]} to @param {AbortSignal | undefined} signal */
   function route(from,to,signal) {
     if(signal?.aborted)return Promise.resolve(null);
     const key=from.join(',')+'>'+to.join(',');
-    const existing=cache.get(key);
-    if(existing && (!existing.settled||existing.expires>Date.now())){existing.signals.push(signal);return existing.promise;}
-    cache.delete(key);
-    for(const [key,entry] of cache)if(entry.settled && (entry.expires<=Date.now()||cache.size>=maxEntries))cache.delete(key);
-    const entry={key,from:[...from],to:[...to],signals:[signal],settled:false,expires:0,promise:null,resolve:null};
+    const cached=cache.get(key);
+    if(cached){
+      if(cached.expires>Date.now())return Promise.resolve(cached.path);
+      cache.delete(key);
+    }
+    const existing=pending.get(key);
+    if(existing){existing.signals?.push(signal);return existing.promise;}
+    const entry={key,from:[...from],to:[...to],signals:[signal],promise:null,resolve:null};
     entry.promise=new Promise(resolve=>{entry.resolve=resolve;});
-    cache.set(key,entry);queue.push(entry);drain();
+    pending.set(key,entry);queue.push(entry);drain();
     return entry.promise;
   }
   return route;

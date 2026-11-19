@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {driveSamples,replayPosition,routeGapThreshold} from '../src/core.mjs';
+import {inspectDriveRoute} from '../src/telemetry.mjs';
 import {acceptableRoadPath,activeRecordedGap,createGapRouter,recordedDisplayPlan,roadPathPosition,roadPathProfile,shortestDrivingPath,splitRecordedPath} from '../src/routes.mjs';
 
 const row=(seconds,longitude=121.4)=>({date:new Date(Date.UTC(2026,9,14)+seconds*1000).toISOString(),latitude:31.2,longitude,speed:20,power:8,elevation:4});
@@ -115,6 +116,30 @@ test('unavailable or timed out services return no fabricated road and permit ret
   await pause(3);succeed=true;
   assert.deepEqual(await route([121,31],[121.1,31.1]),[[121,31],[121.1,31.1]]);
   assert.equal(calls,2);
+});
+
+test('a queued burst retains at most the configured number of completed road estimates',async()=>{
+  let searches=0;
+  const AMap={DrivingPolicy:{LEAST_DISTANCE:2},Driving:class{
+    search(from,to,callback){searches++;callback('complete',result(from,to));}
+    clear(){}
+  }};
+  const route=createGapRouter(AMap,{concurrency:1,maxEntries:2});
+  const edges=Array.from({length:6},(_,i)=>[[121+i*.01,31],[121+i*.01,31.01]]);
+  await Promise.all(edges.map(([from,to])=>route(from,to)));
+  assert.equal(searches,6);
+  for(const [from,to] of edges.slice(-2))assert.deepEqual(await route(from,to),[from,to]);
+  assert.equal(searches,6);
+  await route(...edges[0]);assert.equal(searches,7);
+});
+
+test('adjacent spike decisions use the original neighbours and retain the break on the next visible sample',()=>{
+  const route=samples([row(0,121),row(1,122),row(2,121),row(3,122),row(4,121),row(5,121.0001)]);
+  const before=structuredClone(route),quality=inspectDriveRoute(route,7);
+  assert.deepEqual(quality.samples.map(p=>p.sourceIndex),[0,4,5]);
+  assert.equal(quality.samples[1].routeBreakBefore,true);
+  assert.equal(quality.isolatedSpikes,3);assert.equal(quality.jumpBreaks,0);assert.equal(quality.invalid,1);
+  assert.deepEqual(route,before);
 });
 test('failed plugin loading can recover on the next request',async()=>{
   let ready=false,loads=0;

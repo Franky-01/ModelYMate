@@ -33,6 +33,18 @@ test('overlapping and same-second drives stay separate without invented parking'
  assert.equal(multiReplayPosition(timeline,20000).driveID,3);
  assert.equal(multiReplayPosition(buildReplayTimeline([]),0),null);
 });
+test('indexed seeking selects the same drive or parking interval at every boundary',()=>{
+ const drives=Array.from({length:180},(_,i)=>drive(i,1000*i,1000*i+(i%3===0?0:700)));
+ for(const parkingLimitMs of [0,63]){
+  const timeline=buildReplayTimeline(drives,{parkingLimitMs});
+  for(const {end} of timeline.segments)for(const elapsed of [end-1,end,end+1]){
+   const target=Math.max(0,Math.min(timeline.duration,elapsed));
+   const expected=timeline.segments.find(segment=>target<segment.end)??timeline.segments.at(-1);
+   const position=multiReplayPosition(timeline,elapsed);
+   assert.equal(position.phase,expected.kind);assert.equal(position.driveID,expected.drive.driveID);
+  }
+ }
+});
 test('telemetry outages retain unknown telemetry and the original coordinate',()=>{
  const samples=[point(0),point(1000,1),point(90000,2,121.5),point(91000,3,121.6)];
  const result=multiReplayPosition(buildReplayTimeline([{driveID:1,samples}]),45000);

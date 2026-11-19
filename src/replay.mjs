@@ -22,7 +22,15 @@ export function buildReplayTimeline(drives,{compressParking=true,parkingLimitMs=
 export function multiReplayPosition(timeline,elapsed) {
   if(!timeline.segments.length)return null;
   const target=Math.max(0,Math.min(timeline.duration,elapsed));
-  const segment=timeline.segments.find(s=>target<s.end)??timeline.segments.at(-1);
+  // Choose the first end strictly after the cursor. At the final boundary,
+  // including multiple zero-duration drives, keep the last segment.
+  let low=0,high=timeline.segments.length-1;
+  while(low<high){
+    const middle=Math.floor((low+high)/2);
+    if(target<timeline.segments[middle].end)high=middle;
+    else low=middle+1;
+  }
+  const segment=timeline.segments[low];
   const fraction=segment.end>segment.start?(target-segment.start)/(segment.end-segment.start):1;
   const time=segment.sourceStart+(segment.sourceEnd-segment.sourceStart)*fraction;
   const drive=segment.drive;
@@ -60,5 +68,6 @@ export async function loadDriveBatch(ids,fetchDetail,{signal,concurrency=3,timeo
     }
   }
   await Promise.all(Array.from({length:Math.min(unique.length,Math.max(1,Math.min(4,concurrency)))},worker));
-  return {results,cancelled:!!signal?.aborted,pending:unique.filter(id=>!results.some(r=>r.id===id))};
+  const finished=new Set(results.map(result=>result.id));
+  return {results,cancelled:!!signal?.aborted,pending:unique.filter(id=>!finished.has(id))};
 }

@@ -5,13 +5,19 @@ import {useDriveDetails,type DetailAPI} from './drive-loader';
 import {date,localDay} from './core.mjs';
 import {buildRoadFrequency,chargeMapPoints} from './history-map.mjs';
 
+function onDay(record:J,selected:string){
+ const started=date(record.start_date);
+ return started!==null&&localDay(started)===selected;
+}
+
 export default function HistoryMap({api,config,carID,drives,charges,units={},hideAddress=false}:{api:DetailAPI;config:Config;carID:number;drives:J[];charges:J[];units?:J;hideAddress?:boolean}){
  const [view,setView]=useState('day'),[selected,setSelected]=useState(localDay(new Date())),[color,setColor]=useState('standard'),[limit,setLimit]=useState(100),[roadFrequency,setRoadFrequency]=useState(false),[selectedCharge,setSelectedCharge]=useState<number|null>(null),[chargeLimit,setChargeLimit]=useState(30);
- const rows=useMemo(()=>view==='day'?drives.filter(r=>date(r.start_date)&&localDay(date(r.start_date))===selected):drives,[view,selected,drives]);
+ const rows=useMemo(()=>view==='day'?drives.filter(r=>onDay(r,selected)):drives,[view,selected,drives]);
  const ids=useMemo(()=>view==='charges'?[]:rows.slice(0,limit).map(r=>r.drive_id),[view,rows,limit]),loader=useDriveDetails(api,carID,ids);
  const paths=useMemo(()=>loader.drives.map(d=>d.samples.map((p:any)=>[p.longitude,p.latitude])),[loader.drives]),samples=useMemo(()=>loader.drives.map(d=>d.samples),[loader.drives]);
- const speeds=useMemo(()=>samples.flatMap(p=>p.map((v:any)=>v.speed===null?null:v.speed*(units.unit_of_length==='mi'?1.609344:1))),[samples,units.unit_of_length]),elevations=useMemo(()=>samples.flatMap(p=>p.map((v:any)=>v.elevation)),[samples]);
- const relevantCharges=useMemo(()=>view==='day'?charges.filter(r=>date(r.start_date)&&localDay(date(r.start_date))===selected):charges,[charges,view,selected]);
+ const speeds=useMemo(()=>view!=='charges'&&color==='speed'?samples.flatMap(p=>p.map((v:any)=>v.speed===null?null:v.speed*(units.unit_of_length==='mi'?1.609344:1))):undefined,[samples,color,view,units.unit_of_length]);
+ const elevations=useMemo(()=>view!=='charges'&&color==='elevation'?samples.flatMap(p=>p.map((v:any)=>v.elevation)):undefined,[samples,color,view]);
+ const relevantCharges=useMemo(()=>view==='day'?charges.filter(r=>onDay(r,selected)):charges,[charges,view,selected]);
  const markers=useMemo(()=>chargeMapPoints(relevantCharges,{hideAddress}),[relevantCharges,hideAddress]);
  const frequency=useMemo(()=>roadFrequency&&view==='history'?buildRoadFrequency(loader.drives,{maxCells:1500}):null,[roadFrequency,view,loader.drives]);
  const noPaths=useMemo(()=>[],[]);

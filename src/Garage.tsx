@@ -627,10 +627,13 @@ class GarageEngine {
   private refreshSchedule() {
     this.updateQADOM();
     if (!this.canRender() || !this.chargingState.connected) {
-      window.clearTimeout(this.chargingTimer); this.chargingTimer = 0;
+      window.clearInterval(this.chargingTimer); this.chargingTimer = 0;
     } else if (!this.chargingTimer) {
       // Static connected/reduced-motion states still expire after failed polls.
-      this.chargingTimer = window.setTimeout(() => {this.chargingTimer = 0; this.sync();}, 1000);
+      this.chargingTimer = window.setInterval(() => {
+        this.syncCharging();
+        if (this.dirty) this.refreshSchedule();
+      }, 1000);
     }
     if (!this.canRender()) {
       if (this.raf) cancelAnimationFrame(this.raf);
@@ -904,7 +907,7 @@ class GarageEngine {
     if (this.disposed) return;
     this.disposed = true; this.preparationVersion++; this.abort.abort(); if (this.raf) cancelAnimationFrame(this.raf);
     this.inputFitPending = false;
-    window.clearTimeout(this.chargingTimer);
+    window.clearInterval(this.chargingTimer);
     this.resizeObserver.disconnect(); this.visibilityObserver.disconnect(); this.themeObserver.disconnect();
     document.removeEventListener('visibilitychange', this.visibilityChanged);
     window.removeEventListener('pagehide', this.pageHide); window.removeEventListener('pageshow', this.pageShow);

@@ -1,5 +1,5 @@
 // TeslaMate data rules shared by UI and regression tests. Missing is never zero.
-import {telemetryFreshness,fieldCoverage,dailySeries} from './data-quality.mjs';
+import {telemetryFreshness,dailySeries} from './data-quality.mjs';
 import {calibratedDriveEnergy} from './battery.mjs';
 import {analyzeDriving,telemetrySamples,inspectDriveRoute} from './telemetry.mjs';
 export const number = v => typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -17,7 +17,10 @@ export function fmt(v, digits = 1) {
   if (!formatter) { formatter = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }); numberFormats.set(digits, formatter); }
   return formatter.format(v);
 }
-export const date = v => typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v) : null;
+export function date(value) {
+  const timestamp=typeof value==='string'?Date.parse(value):NaN;
+  return Number.isFinite(timestamp)?new Date(timestamp):null;
+}
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' });
 const dayFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', month: 'short', day: 'numeric' });
 // Read local calendar fields each time, then format them with reusable UTC
@@ -77,9 +80,35 @@ export function driveEfficiency(r, length='km', calibration) {
   return { distance:dist, energy, estimated,source, consumption, loss, socLoss, achievement:dist!==null && loss>0?dist/loss*100:null, distancePerPercent:dist!==null && socLoss>0?dist/socLoss:null };
 }
 export function aggregateEfficiency(rows, unit='km') {
-  const v=rows.map(r=>driveEfficiency(r,unit)), match=v.filter(x=>x.achievement!==null), soc=v.filter(x=>x.distancePerPercent!==null), energy=v.filter(x=>x.energy!==null && x.distance!==null);
-  const sum=(a,k)=>a.reduce((s,x)=>s+x[k],0), ratio=(a,b,scale=1)=>b>0?a/b*scale:null;
-  return {achievement:ratio(sum(match,'distance'),sum(match,'loss'),100), distancePerPercent:ratio(sum(soc,'distance'),sum(soc,'socLoss')), consumption:ratio(sum(energy,'energy'),sum(energy,'distance')*(unit==='mi'?1.609344:1),100), estimated:energy.some(x=>x.estimated), validRangeCount:match.length,coverage:fieldCoverage(v.map(x=>x.energy!==null&&x.distance!==null?x.energy:null))};
+  return summarizeEfficiency(rows.map(row=>driveEfficiency(row,unit)),unit);
+}
+function summarizeEfficiency(values,unit) {
+  let rangeDistance=0,rangeLoss=0,validRangeCount=0,socDistance=0,socLoss=0;
+  let energy=0,energyDistance=0,validEnergy=0,estimated=false;
+  for(const entry of values){
+    if(entry.achievement!==null){
+      rangeDistance+=entry.distance;
+      rangeLoss+=entry.loss;
+      validRangeCount++;
+    }
+    if(entry.distancePerPercent!==null){
+      socDistance+=entry.distance;
+      socLoss+=entry.socLoss;
+    }
+    if(entry.energy!==null&&entry.distance!==null){
+      energy+=entry.energy;
+      energyDistance+=entry.distance;
+      if(Number.isFinite(entry.energy))validEnergy++;
+      if(entry.estimated)estimated=true;
+    }
+  }
+  const km=energyDistance*(unit==='mi'?1.609344:1);
+  return {
+    achievement:rangeLoss>0?rangeDistance/rangeLoss*100:null,
+    distancePerPercent:socLoss>0?socDistance/socLoss:null,
+    consumption:km>0?energy/km*100:null,
+    estimated,validRangeCount,coverage:{valid:validEnergy,total:values.length,partial:validEnergy<values.length}
+  };
 }
 export function driveSamples(r) {
   const rows=telemetrySamples(r),invalidPrefix=[0];
@@ -162,17 +191,42 @@ export function periodRows(rows,days,now=new Date()) {
   if(!days)return rows;
   const start=new Date(now);start.setHours(0,0,0,0);start.setDate(start.getDate()-days+1);
   const end=new Date(now);end.setHours(24,0,0,0);
-  return rows.filter(r=>date(r.start_date) && date(r.start_date)>=start && date(r.start_date)<end);
+  const from=start.getTime(),until=end.getTime();
+  return rows.filter(row=>{
+    const timestamp=typeof row.start_date==='string'?Date.parse(row.start_date):NaN;
+    return timestamp>=from&&timestamp<until;
+  });
+}
+function fieldTotal(rows,read) {
+  let sum=null,valid=0;
+  for(const row of rows){
+    const value=read(row);
+    if(value!==null)sum=(sum??0)+value;
+    if(Number.isFinite(value))valid++;
+  }
+  return {sum,coverage:{valid,total:rows.length,partial:valid<rows.length}};
 }
 export function stats(drives,charges,unit) {
   unit=['km','mi'].includes(unit)?unit:'';
-  const distance=drives.map(r=>nonNegative(r.odometer_details?.odometer_distance)),duration=drives.map(r=>nonNegative(r.duration_min)),energy=drives.map(r=>driveEfficiency(r,unit));
-  const sum=a=>a.some(x=>x!==null)?a.reduce((s,x)=>s+(x??0),0):null;
-  const speedRows=drives.filter(r=>nonNegative(r.odometer_details?.odometer_distance)!==null&&positive(r.duration_min)!==null);
-  const speedTime=sum(speedRows.map(r=>r.duration_min));
-  const added=charges.map(r=>nonNegative(r.charge_energy_added)),chargeMinutes=charges.map(r=>nonNegative(r.duration_min));
-  const efficiency=aggregateEfficiency(drives,unit);
-  return {distance:sum(distance),minutes:sum(duration),energy:sum(energy.map(e=>e.energy)),estimated:energy.some(e=>e.estimated),added:sum(added),chargeMinutes:sum(chargeMinutes),driveCount:drives.length,chargeCount:charges.length,averageSpeed:unit&&speedTime>0?sum(speedRows.map(r=>r.odometer_details.odometer_distance))/(speedTime/60):null,efficiency,missingDistance:distance.filter(x=>x===null).length,coverage:{distance:fieldCoverage(distance),minutes:fieldCoverage(duration),energy:fieldCoverage(energy.map(e=>e.energy)),consumption:efficiency.coverage,averageSpeed:fieldCoverage(drives.map(r=>unit&&nonNegative(r.odometer_details?.odometer_distance)!==null&&positive(r.duration_min)!==null?r.duration_min:null)),added:fieldCoverage(added),chargeMinutes:fieldCoverage(chargeMinutes)}};
+  const values=drives.map(row=>driveEfficiency(row,unit)),efficiency=summarizeEfficiency(values,unit);
+  const distance=fieldTotal(drives,r=>nonNegative(r.odometer_details?.odometer_distance));
+  const minutes=fieldTotal(drives,r=>nonNegative(r.duration_min)),energy=fieldTotal(values,r=>r.energy);
+  const added=fieldTotal(charges,r=>nonNegative(r.charge_energy_added)),chargeMinutes=fieldTotal(charges,r=>nonNegative(r.duration_min));
+  let speedDistance=0,speedMinutes=0,speedCount=0;
+  if(unit)for(const row of drives){
+    const length=nonNegative(row.odometer_details?.odometer_distance),time=positive(row.duration_min);
+    if(length===null||time===null)continue;
+    speedDistance+=length;
+    speedMinutes+=time;
+    speedCount++;
+  }
+  return {
+    distance:distance.sum,minutes:minutes.sum,energy:energy.sum,estimated:values.some(value=>value.estimated),
+    added:added.sum,chargeMinutes:chargeMinutes.sum,driveCount:drives.length,chargeCount:charges.length,
+    averageSpeed:speedMinutes>0?speedDistance/(speedMinutes/60):null,efficiency,missingDistance:drives.length-distance.coverage.valid,
+    coverage:{distance:distance.coverage,minutes:minutes.coverage,energy:energy.coverage,consumption:efficiency.coverage,
+      averageSpeed:{valid:speedCount,total:drives.length,partial:speedCount<drives.length},added:added.coverage,chargeMinutes:chargeMinutes.coverage}
+  };
 }
 export function effectiveCost(r,costs) {
   const local=costs?.[String(r.charge_id)];
@@ -180,9 +234,11 @@ export function effectiveCost(r,costs) {
   return positive(r.cost)!==null ? {amount:r.cost,currency:'未知币种',source:'server'} : null;
 }
 export function costSummary(charges,costs={}) {
-  const values=charges.map(r=>({record:r,cost:effectiveCost(r,costs)})),coverage=fieldCoverage(values.map(v=>v.cost?.amount??null)),missingCount=coverage.total-coverage.valid,groups={};
-  for(const {record,cost} of values){
-    if(!cost)continue;
+  const groups={};
+  let missingCount=0;
+  for(const record of charges){
+    const cost=effectiveCost(record,costs);
+    if(!cost){missingCount++;continue;}
     const g=groups[cost.currency]??={actual:null,estimated:null,count:0,actualCount:0,estimatedCount:0,energy:0,pairedCost:0,pairedCount:0};
     const kind=cost.source==='estimate'?'estimated':'actual';
     g[kind]=(g[kind]??0)+cost.amount;g[kind+'Count']++;g.count++;
@@ -196,18 +252,34 @@ export function costSummary(charges,costs={}) {
     g.pairedCoverage={valid:g.pairedCount,total,partial:g.pairedCount<total};
     g.averagePrice=currency!=='未知币种'&&g.energy>0?g.pairedCost/g.energy:null;
   }
-  return {groups,coverage,missingCount};
+  return {groups,coverage:{valid:charges.length-missingCount,total:charges.length,partial:missingCount>0},missingCount};
 }
 export function dailyCostSeries(charges,costs,currency,days=0,now=new Date()) {
   const rows=charges.filter(r=>{const cost=effectiveCost(r,costs);return !cost||cost.currency===currency;});
   return dailySeries(rows,r=>effectiveCost(r,costs)?.amount??null,days,now);
 }
+const tariffFormats = new Map();
+function tariffFormat(timeZone) {
+  if (tariffFormats.has(timeZone)) return tariffFormats.get(timeZone);
+  const formatter = new Intl.DateTimeFormat('en-US',{timeZone,weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+  // Older rules can use the device time zone. Resolve those against the current device every time.
+  if (typeof timeZone === 'string') {
+    if (tariffFormats.size >= 32) tariffFormats.delete(tariffFormats.keys().next().value);
+    tariffFormats.set(timeZone,formatter);
+  }
+  return formatter;
+}
 export function estimatePrice(record,rules) {
   const point=coordinate(record);if(!point)return {error:'此记录没有坐标。'};
-  const candidates=rules.filter(r=>validCoordinate(r.latitude,r.longitude)&&haversine(point,[r.longitude,r.latitude])<=r.radius).sort((a,b)=>haversine(point,[a.longitude,a.latitude])-haversine(point,[b.longitude,b.latitude]));
-  const rule=candidates[0];if(!rule)return{error:'没有匹配的电价地点。'};
+  let rule, nearest=Infinity;
+  for(const candidate of rules){
+    if(!validCoordinate(candidate.latitude,candidate.longitude))continue;
+    const distance=haversine(point,[candidate.longitude,candidate.latitude]);
+    if(distance<=candidate.radius && distance<nearest){rule=candidate;nearest=distance;}
+  }
+  if(!rule)return{error:'没有匹配的电价地点。'};
   const start=date(record.start_date);if(!start)return{error:'缺少起充时间。'};
-  let parts;try{parts=new Intl.DateTimeFormat('en-US',{timeZone:rule.timezone,weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(start);}catch{return{error:'地点时区无效。'};}
+  let parts;try{parts=tariffFormat(rule.timezone).formatToParts(start);}catch{return{error:'地点时区无效。'};}
   const part=k=>parts.find(p=>p.type===k)?.value,weekday=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(part('weekday')),minute=Number(part('hour'))*60+Number(part('minute'));
   const matching=(rule.periods??[]).filter(p=>{
     if(p.start<p.end)return p.days.includes(weekday)&&minute>=p.start&&minute<p.end;
@@ -229,13 +301,22 @@ export function validateRule(r) {
 }
 export function csvCell(v) {let s=String(v??'');if(/^[=+@\-]/.test(s.trimStart())||/^[\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}
 export function exportCSV(drives,charges,units,journals={},costs={},options={}) {
-  const head=['类型','ID','开始时间','结束时间','起点','终点','距离','距离单位','时长分钟','起始电量%','结束电量%','净能量kWh','充入量kWh','电网用电kWh','金额','币种','费用来源','分类','子分类','备注'];
-  const d=drives.map(r=>{const j=journals[r.drive_id]??{},e=driveEfficiency(r,units.unit_of_length);return['行程',r.drive_id,r.start_date,r.end_date,r.start_address,r.end_address,r.odometer_details?.odometer_distance,units.unit_of_length,r.duration_min,r.battery_details?.start_battery_level,r.battery_details?.end_battery_level,e.estimated?'':e.energy,'','','','','',j.category,j.subcategory,j.note];});
-  const c=charges.map(r=>{const cost=effectiveCost(r,costs);return['充电',r.charge_id,r.start_date,r.end_date,r.address,r.address,'',units.unit_of_length,r.duration_min,r.battery_details?.start_battery_level,r.battery_details?.end_battery_level,'',r.charge_energy_added,r.charge_energy_used,cost?.amount,cost?.currency,cost?.source,'','',''];});
-  if(options.private)for(const row of [...d,...c]){row[4]='';row[5]='';row[18]='';row[19]='';}
-  head.push('能量来源','司机','覆盖范围');
-  for(let i=0;i<d.length;i++)d[i].push(driveEfficiency(drives[i],units.unit_of_length).energy===null?'未知':driveEfficiency(drives[i],units.unit_of_length).estimated?'充电记录标定估算（能量未导出）':number(drives[i].energy_consumed_net)!==null?'源净能量':'源能耗×距离',options.private?'':journals[drives[i].drive_id]?.driver??'',options.partial?'已载入部分历史':'已载入历史');
-  for(const row of c)row.push('源充电记录','',options.partial?'已载入部分历史':'已载入历史');
+  const head=['类型','ID','开始时间','结束时间','起点','终点','距离','距离单位','时长分钟','起始电量%','结束电量%','净能量kWh','充入量kWh','电网用电kWh','金额','币种','费用来源','分类','子分类','备注','能量来源','司机','覆盖范围'];
+  const coverage=options.partial?'已载入部分历史':'已载入历史';
+  const d=drives.map(r=>{
+    const j=journals[r.drive_id]??{},e=driveEfficiency(r,units.unit_of_length);
+    const source=e.energy===null?'未知':e.estimated?'充电记录标定估算（能量未导出）':number(r.energy_consumed_net)!==null?'源净能量':'源能耗×距离';
+    return ['行程',r.drive_id,r.start_date,r.end_date,options.private?'':r.start_address,options.private?'':r.end_address,
+      r.odometer_details?.odometer_distance,units.unit_of_length,r.duration_min,r.battery_details?.start_battery_level,r.battery_details?.end_battery_level,
+      e.estimated?'':e.energy,'','','','','',j.category,options.private?'':j.subcategory,options.private?'':j.note,source,options.private?'':j.driver??'',coverage];
+  });
+  const c=charges.map(r=>{
+    const cost=effectiveCost(r,costs);
+    const address=options.private?'':r.address;
+    return ['充电',r.charge_id,r.start_date,r.end_date,address,address,'',units.unit_of_length,r.duration_min,
+      r.battery_details?.start_battery_level,r.battery_details?.end_battery_level,'',r.charge_energy_added,r.charge_energy_used,
+      cost?.amount,cost?.currency,cost?.source,'','','','源充电记录','',coverage];
+  });
   return '\uFEFF'+[head,...d,...c].map(row=>row.map(csvCell).join(',')).join('\r\n');
 }
 export const ACHIEVEMENTS=[['驾驶 1,000 km','distance',1000,'km'],['驾驶 10,000 km','distance',10000,'km'],['驾驶 50,000 km','distance',50000,'km'],['完成 10 次行程','drives',10,'次'],['完成 100 次行程','drives',100,'次'],['完成 500 次行程','drives',500,'次'],['完成 10 次充电','charges',10,'次'],['完成 100 次充电','charges',100,'次'],['完成 500 次充电','charges',500,'次'],['充入 1,000 kWh','added',1000,'kWh'],['单次行程 300 km','longest',300,'km']];

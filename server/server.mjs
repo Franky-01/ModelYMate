@@ -1,6 +1,6 @@
 import http from 'node:http';
-import {readFile,stat} from 'node:fs/promises';
-import {createReadStream} from 'node:fs';
+import {open,readFile} from 'node:fs/promises';
+import {pipeline} from 'node:stream/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes,createHash} from 'node:crypto';
@@ -36,6 +36,32 @@ const mapMinuteBudget=new Budget(positiveInteger(process.env.MAP_RATE_PER_MINUTE
 const mapDailyBudget=new Budget(positiveInteger(process.env.MAP_DAILY_LIMIT,200,500),86400000);
 const allowed=/^(cars(?:\/\d+(?:\/(?:status|battery-health|updates|drives(?:\/\d+)?|charges(?:\/(?:current|\d+))?))?)?|globalsettings)$/;
 const mime={'.html':'text/html; charset=utf-8','.js':'application/javascript','.css':'text/css','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.glb':'model/gltf-binary','.hdr':'application/octet-stream'};
+const publicRoot=path.resolve(root,'dist'),assetRoot=path.join(publicRoot,'assets');
+function staticEncodings(header=''){
+  const weights=new Map();
+  for(const entry of header.split(',')){
+    const match=/^(gzip|x-gzip|identity|\*)(?:\s*;\s*q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?))?$/i.exec(entry.trim());
+    if(match)weights.set(match[1].toLowerCase().replace('x-gzip','gzip'),Number(match[2]??1));
+  }
+  const wildcard=weights.get('*'),gzip=weights.get('gzip')??wildcard??0;
+  const identity=weights.get('identity')??(wildcard===0?0:1);
+  return {preferGzip:gzip>0&&(!weights.has('identity')||gzip>=identity),allowIdentity:identity>0};
+}
+async function openStaticFile(filename){
+  let file,keepOpen=false;
+  try{
+    file=await open(filename,'r');
+    const info=await file.stat();
+    if(!info.isFile())return null;
+    keepOpen=true;
+    return {file,size:info.size};
+  }catch(error){
+    if(['ENOENT','ENOTDIR','EISDIR'].includes(error.code))return null;
+    throw error;
+  }finally{
+    if(file&&!keepOpen)await file.close();
+  }
+}
 const json=(res,status,payload)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(payload));};
 function sessionID(req){const entries=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith('modelymate_session='));if(entries.length!==1)return null;const id=entries[0].slice(19);return /^[a-f0-9]{64}$/.test(id)?id:null;}
 function session(req){const id=sessionID(req),s=sessions.get(id),now=Date.now();if(s&&s.expires>now&&s.seen+idle>now){s.seen=now;return s;}if(id)sessions.delete(id);return null;}
@@ -103,15 +129,42 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(response.status,{'content-type':callback?'application/javascript; charset=utf-8':'application/json; charset=utf-8','cache-control':'no-store'});return res.end(data);
     }
     if(req.method!=='GET'&&req.method!=='HEAD')return json(res,405,{error:'不支持此操作。'});
-    let filename=path.resolve(root,'dist','.'+decodeURIComponent(p));const publicRoot=path.resolve(root,'dist');
+    let filename=path.resolve(publicRoot,'.'+decodeURIComponent(p));
     if(!filename.startsWith(publicRoot+path.sep)&&filename!==publicRoot)return json(res,403,{error:'访问被拒绝。'});
-    let info;try{info=await stat(filename);if(info.isDirectory())throw new Error();}catch{filename=path.join(publicRoot,'index.html');info=await stat(filename);}
-    const type=mime[path.extname(filename)]??'application/octet-stream',immutable=p.startsWith('/assets/')&&/[-.][\w-]{8,}\./.test(p);
-    res.setHeader('Content-Type',type);res.setHeader('Cache-Control',p==='/sw.js'?'no-cache':immutable?'private, max-age=31536000, immutable':'no-cache');
-    if(req.method==='HEAD'){res.writeHead(200);return res.end();}
-    if(req.headers['accept-encoding']?.includes('gzip')){try{await stat(filename+'.gz');res.setHeader('Content-Encoding','gzip');res.setHeader('Vary','Accept-Encoding');res.writeHead(200);return createReadStream(filename+'.gz').pipe(res);}catch{}}
-    res.writeHead(200);createReadStream(filename).pipe(res);
-  }catch(error){json(res,502,{error:error?.name==='TimeoutError'?'连接超时，请重试。':'服务暂时无法访问，请检查连接。'});}
+    const asset=filename===assetRoot||filename.startsWith(assetRoot+path.sep);
+    if(filename===publicRoot)filename=path.join(publicRoot,'index.html');
+    let representation=await openStaticFile(filename);
+    if(!representation&&!asset&&!Object.hasOwn(mime,path.extname(filename))){
+      filename=path.join(publicRoot,'index.html');
+      representation=await openStaticFile(filename);
+    }
+    if(!representation)return json(res,404,{error:'找不到此资源。'});
+    try{
+      res.setHeader('Vary','Accept-Encoding');
+      const {preferGzip,allowIdentity}=staticEncodings(req.headers['accept-encoding']);
+      const compressed=preferGzip?await openStaticFile(filename+'.gz'):null;
+      if(compressed){
+        const identity=representation;
+        representation=compressed;
+        await identity.file.close();
+        res.setHeader('Content-Encoding','gzip');
+      }else if(!allowIdentity){
+        res.writeHead(406,{'Cache-Control':'no-store','Content-Length':0});
+        return res.end();
+      }
+      const immutable=asset&&/[-.][\w-]{8,}\./.test(path.basename(filename));
+      res.setHeader('Cache-Control',immutable?'private, max-age=31536000, immutable':'no-cache');
+      res.setHeader('Content-Type',mime[path.extname(filename)]??'application/octet-stream');
+      res.setHeader('Content-Length',representation.size);
+      if(req.method==='HEAD'||!representation.size)return res.end();
+      await pipeline(representation.file.createReadStream({end:representation.size-1}),res);
+    }finally{
+      await representation.file.close();
+    }
+  }catch(error){
+    if(res.headersSent||res.destroyed){res.destroy();return;}
+    json(res,502,{error:error?.name==='TimeoutError'?'连接超时，请重试。':'服务暂时无法访问，请检查连接。'});
+  }
 });
 server.requestTimeout=15000;server.headersTimeout=10000;
 if(process.env.NODE_ENV!=='test'){server.listen(port,host,()=>console.log('ModelYMate PWA http://'+host+':'+server.address().port));const timer=setInterval(()=>{for(const[id,s]of sessions)if(s.expires<Date.now()||s.seen+idle<Date.now())sessions.delete(id);},60000);timer.unref();}

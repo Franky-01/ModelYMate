@@ -39,16 +39,31 @@ export function analyzeDriving(points,unit,{accelerationThreshold=2.5,brakingThr
 // A GPS spike is hidden only when BOTH legs imply >70m/s, the neighbours
 // reconnect plausibly, and the excursion exceeds 200m. No road snapping.
 export function inspectDriveRoute(samples,rawCount=samples.length){
-  const excluded=new Set();let reversed=0,duplicates=0;
-  for(let i=1;i<samples.length;i++){if(samples[i].sourceIndex<samples[i-1].sourceIndex)reversed++;if(samples[i].t===samples[i-1].t)duplicates++;}
-  for(let i=1;i<samples.length-1;i++){
-    const a=samples[i-1],b=samples[i],c=samples[i+1],ab=(b.t-a.t)/1000,bc=(c.t-b.t)/1000,ac=(c.t-a.t)/1000;
-    if(ab<0||bc<0||ac<=0||ac>120)continue;
-    const d1=distance(a,b),d2=distance(b,c),direct=distance(a,c);
-    if(d1>200&&d2>200&&d1/Math.max(1,ab)>70&&d2/Math.max(1,bc)>70&&direct/ac<=55&&direct<Math.min(d1,d2)/3)excluded.add(i);
+  const visible=[];
+  let reversed=0,duplicates=0,isolatedSpikes=0,jumpBreaks=0,omitted=false,nextDistance=0;
+  for(let i=0;i<samples.length;i++){
+    const previous=samples[i-1],current=samples[i],next=samples[i+1];
+    const previousDistance=nextDistance;
+    nextDistance=next?distance(current,next):0;
+    if(previous){
+      if(current.sourceIndex<previous.sourceIndex)reversed++;
+      if(current.t===previous.t)duplicates++;
+    }
+    // Use original neighbours for spike detection, even if the preceding
+    // sample was omitted. Most GPS steps need only the one adjacent distance.
+    if(previous&&next&&previousDistance>200&&nextDistance>200){
+      const ab=(current.t-previous.t)/1000,bc=(next.t-current.t)/1000,ac=(next.t-previous.t)/1000;
+      if(ab>=0&&bc>=0&&ac>0&&ac<=120&&previousDistance/Math.max(1,ab)>70&&nextDistance/Math.max(1,bc)>70){
+        const direct=distance(previous,next);
+        if(direct/ac<=55&&direct<Math.min(previousDistance,nextDistance)/3){isolatedSpikes++;omitted=true;continue;}
+      }
+    }
+    const row={...current,routeBreakBefore:current.routeBreakBefore||omitted},last=visible.at(-1);
+    if(last){
+      const metres=omitted?distance(last,row):previousDistance,dt=(row.t-last.t)/1000;
+      if(metres>200&&dt>=0&&metres/Math.max(1,dt)>70){row.routeBreakBefore=true;row.gpsJumpBefore=true;jumpBreaks++;}
+    }
+    visible.push(row);omitted=false;
   }
-  let omitted=false,jumpBreaks=0;
-  const visible=samples.flatMap((p,i)=>{if(excluded.has(i)){omitted=true;return [];}const row={...p,routeBreakBefore:p.routeBreakBefore||omitted};omitted=false;return [row];});
-  for(let i=1;i<visible.length;i++){const a=visible[i-1],b=visible[i],dt=(b.t-a.t)/1000,metres=distance(a,b);if(metres>200&&dt>=0&&metres/Math.max(1,dt)>70){b.routeBreakBefore=true;b.gpsJumpBefore=true;jumpBreaks++;}}
-  return {samples:visible,invalid:Math.max(0,rawCount-samples.length),sameTime:duplicates,reordered:reversed,isolatedSpikes:excluded.size,jumpBreaks};
+  return {samples:visible,invalid:Math.max(0,rawCount-samples.length),sameTime:duplicates,reordered:reversed,isolatedSpikes,jumpBreaks};
 }

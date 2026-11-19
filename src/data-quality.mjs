@@ -18,10 +18,13 @@ export function coverageText(c){return !c||!c.total?'暂无记录':`${c.partial?
 
 // Split before simplifying. Endpoints and bucket extrema survive; raw input stays intact.
 export function chartSegments(points,budget=250,maxGap){
-  const intervals=[];
-  for(let i=1;i<points.length;i++){const dt=points[i].x-points[i-1].x;if(dt>0&&Number.isFinite(dt))intervals.push(dt);}
-  intervals.sort((a,b)=>a-b);
-  const threshold=maxGap??Math.min(120000,Math.max(30000,(intervals[Math.floor(intervals.length/2)]??0)*3));
+  let threshold=maxGap;
+  if(threshold==null){
+    const intervals=[];
+    for(let i=1;i<points.length;i++){const dt=points[i].x-points[i-1].x;if(dt>0&&Number.isFinite(dt))intervals.push(dt);}
+    intervals.sort((a,b)=>a-b);
+    threshold=Math.min(120000,Math.max(30000,(intervals[Math.floor(intervals.length/2)]??0)*3));
+  }
   const runs=[];let run=[],previous=null;
   for(let i=0;i<points.length;i++){
     const p=points[i],valid=Number.isFinite(p.x)&&typeof p.y==='number'&&Number.isFinite(p.y);
@@ -85,20 +88,26 @@ export function interpolatedChart(points,{budget=250,maxInterpolationGapMs=30000
 export function dailySeries(rows,metric,days=0,now=new Date()){
   const end=new Date(now);end.setHours(0,0,0,0);
   if(!Number.isFinite(end.getTime()))return [];
-  const dated=rows.flatMap(r=>{
-    const timestamp=typeof r.start_date==='string'?Date.parse(r.start_date):NaN;
-    return Number.isFinite(timestamp)?[{record:r,date:new Date(timestamp)}]:[];
-  });
+  const fixedPeriod=Number.isInteger(days)&&days>0;
   let start=new Date(end);
-  if(Number.isInteger(days)&&days>0)start.setDate(start.getDate()-days+1);
-  else for(const row of dated){const d=new Date(row.date);d.setHours(0,0,0,0);if(d<start)start=d;}
+  if(fixedPeriod)start.setDate(start.getDate()-days+1);
   const key=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const grouped=new Map();
-  for(const {record:r,date:d} of dated){const k=key(d),a=grouped.get(k)??[];a.push(typeof metric==='function'?metric(r):metric==='distance'?r.odometer_details?.odometer_distance:r.charge_energy_added);grouped.set(k,a);}
+  for(const row of rows){
+    const timestamp=typeof row.start_date==='string'?Date.parse(row.start_date):NaN;
+    if(!Number.isFinite(timestamp))continue;
+    const d=new Date(timestamp),day=key(d);
+    if(!fixedPeriod&&d<start){start=new Date(d);start.setHours(0,0,0,0);}
+    let bucket=grouped.get(day);
+    if(!bucket){bucket={sum:0,valid:0,total:0};grouped.set(day,bucket);}
+    const value=typeof metric==='function'?metric(row):metric==='distance'?row.odometer_details?.odometer_distance:row.charge_energy_added;
+    bucket.total++;
+    if(Number.isFinite(value)&&value>=0){bucket.sum+=value;bucket.valid++;}
+  }
   const result=[];
   for(const d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
-    const values=grouped.get(key(d))??[],valid=values.filter(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0);
-    result.push({x:d.getTime(),key:key(d),y:valid.length&&valid.length===values.length?valid.reduce((a,b)=>a+b,0):null,valid:valid.length,total:values.length});
+    const day=key(d),bucket=grouped.get(day);
+    result.push({x:d.getTime(),key:day,y:bucket&&bucket.valid===bucket.total?bucket.sum:null,valid:bucket?.valid??0,total:bucket?.total??0});
   }
   return result;
 }

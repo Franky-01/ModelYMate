@@ -267,13 +267,13 @@ function addEarlyDoorCards(scene: THREE.Group, pivots: Map<string,THREE.Group>, 
     const shape=new THREE.Shape();shape.moveTo(-z0,.42);shape.lineTo(-z1+.08,.39);shape.lineTo(-z1,.86);shape.lineTo(-z1,.95);shape.lineTo(-z0,.91);shape.closePath();
     const geometry=new THREE.ExtrudeGeometry(shape,{depth:.025,bevelEnabled:true,bevelSegments:2,bevelSize:.025,bevelThickness:.012,curveSegments:3});
     geometry.rotateY(Math.PI/2);geometry.translate(side*.91-.0125,0,0);
-    const panel=new THREE.Mesh(geometry,leather);panel.name=`${id}__${key}-door-card`;panel.userData.generatedLiner=true;scene.add(panel);scene.updateMatrixWorld(true);pivots.get(key)!.attach(panel);
+    const panel=new THREE.Mesh(geometry,leather);panel.name=`${id}__${key}-door-card`;panel.userData.generatedLiner=true;scene.add(panel);pivots.get(key)!.attach(panel);
     for(const [name,dimensions,position,material]of [
       ['armrest',[.085,.065,.43],[side*.855,.70,(z0+z1)/2],leather],
       ['handle',[.04,.022,.17],[side*.847,.82,z0+.23],trim],
       ['pocket',[.045,.12,.58],[side*.875,.49,(z0+z1)/2],trim],
     ] as const){
-      const mesh=new THREE.Mesh(new THREE.BoxGeometry(...dimensions),material);mesh.name=`${id}__${key}-${name}`;mesh.position.fromArray(position);mesh.userData.generatedLiner=true;scene.add(mesh);scene.updateMatrixWorld(true);pivots.get(key)!.attach(mesh);
+      const mesh=new THREE.Mesh(new THREE.BoxGeometry(...dimensions),material);mesh.name=`${id}__${key}-${name}`;mesh.position.fromArray(position);mesh.userData.generatedLiner=true;scene.add(mesh);pivots.get(key)!.attach(mesh);
     }
   }
 }
@@ -393,7 +393,8 @@ export async function prepareModelS(source: THREE.Group, id: ModelSId, signal?: 
         : regions.filter(region => region.key !== 'frunk' && region.key !== 'trunk'),work);
     for (const { key, mesh } of parts) {
       scene.add(mesh);
-      if (key !== 'fixed') { scene.updateMatrixWorld(true); pivots.get(key)!.attach(mesh); }
+      // attach() updates both parent chains and the moved part.
+      if (key !== 'fixed') pivots.get(key)!.attach(mesh);
     }
   }
   addFrunkLiner(scene, id);

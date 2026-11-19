@@ -1,17 +1,53 @@
-import {readFile,writeFile,readdir} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {readFile, writeFile, readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import path from 'node:path';
 import {VEHICLE_MODELS} from '../src/vehicle-catalog.mjs';
-const hash=createHash('sha256');
-async function visit(dir){for(const e of (await readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){const p=path.join(dir,e.name),relative=p.split(path.sep).join('/');if(e.isDirectory())await visit(p);else if(relative!=='public/sw.js'){hash.update(relative);hash.update(await readFile(p));}}}
-await visit('src');await visit('public');await visit('server');hash.update(await readFile('package.json'));
-const version='modelymate-pwa-'+hash.digest('hex').slice(0,16),source=await readFile('public/sw.js','utf8');
-const assets={};for(const file of ['Atelier.hdr','vehicle.glb','vehicle.audit.json'])assets['/assets/'+file]=createHash('sha256').update(await readFile('public/assets/'+file)).digest('hex');
-// Keep model downloads on demand, but version every model and dependent texture.
-// An incomplete catalogue is a build error, not a silently missing vehicle.
-for(const model of VEHICLE_MODELS)await readFile(path.join('public/assets',model.asset));
-async function modelAssets(dir){for(const e of (await readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){const p=path.join(dir,e.name);if(e.isDirectory())await modelAssets(p);else assets['/'+p.replaceAll('\\','/').replace(/^public\//,'')]=createHash('sha256').update(await readFile(p)).digest('hex');}}
-await modelAssets('public/assets/vehicles');
-const assetCache='modelymate-assets-v1-'+createHash('sha256').update(JSON.stringify(assets)).digest('hex').slice(0,16);
-await writeFile('public/sw.js',source.replace(/const VERSION='[^']+';/,`const VERSION='${version}';`).replace(/const ASSET_CACHE='[^']+';/,`const ASSET_CACHE='${assetCache}';`).replace(/const ASSET_DIGESTS=\{[^\n]*\};/,`const ASSET_DIGESTS=${JSON.stringify(assets)};`));
-console.log('PWA cache version '+version);
+
+const release = createHash('sha256');
+const baseAssets = ['Atelier.hdr', 'vehicle.glb', 'vehicle.audit.json'].map(name => '/assets/' + name);
+const required = new Set([...baseAssets, ...VEHICLE_MODELS.map(model => '/assets/' + model.asset)]);
+const digests = new Map();
+
+async function visit(directory) {
+  const entries = await readdir(directory, {withFileTypes:true});
+  for (const entry of entries.sort((a,b) => a.name.localeCompare(b.name))) {
+    const file = directory + '/' + entry.name;
+    if (entry.isDirectory()) { await visit(file); continue; }
+    if (file === 'public/sw.js') continue;
+    release.update(file);
+    const url = file.startsWith('public/') ? file.slice('public'.length) : '';
+    if (url.startsWith('/assets/vehicles/') || required.has(url)) {
+      const digest = createHash('sha256');
+      for await (const chunk of createReadStream(file)) {
+        release.update(chunk);
+        digest.update(chunk);
+      }
+      digests.set(url, digest.digest('hex'));
+    } else {
+      release.update(await readFile(file));
+    }
+  }
+}
+
+for (const dir of ['src','public','server']) await visit(dir);
+for (const file of ['index.html','package.json','pnpm-lock.yaml','vite.config.ts','tsconfig.json']) {
+  release.update(file).update(await readFile(file));
+}
+for (const url of required) {
+  if (!digests.has(url)) throw new Error('Missing required vehicle asset: ' + url);
+}
+// Keep the on-demand asset cache stable across shell-only releases.
+const assets = Object.fromEntries([...baseAssets.map(url => [url, digests.get(url)]), ...digests]);
+const manifest = JSON.stringify(assets);
+const assetCache = 'modelymate-assets-v1-' + createHash('sha256').update(manifest).digest('hex').slice(0,16);
+
+const source = await readFile('public/sw.js', 'utf8');
+const generatedHeader = /^const VERSION='[^'\r\n]*';\r?\nconst ASSET_CACHE='[^'\r\n]*';\r?\nconst ASSET_DIGESTS=\{[^\r\n]*\};/;
+if (!generatedHeader.test(source)) throw new Error('Missing service worker manifest header');
+// Worker-only changes also invalidate the shell, without hashing the previous generated version.
+release.update(source.replace(generatedHeader, ''));
+const version = 'modelymate-pwa-' + release.digest('hex').slice(0,16);
+const header = ["const VERSION='" + version + "';", "const ASSET_CACHE='" + assetCache + "';", 'const ASSET_DIGESTS=' + manifest + ';'];
+const output = source.replace(generatedHeader, () => header.join(source.includes('\r\n') ? '\r\n' : '\n'));
+if (output !== source) await writeFile('public/sw.js', output);
+console.log('PWA cache version ' + version);

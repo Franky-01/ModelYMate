@@ -553,7 +553,7 @@ test('export retains source values and annotations, separates manual cost and om
     start_address: '原始英文地址', end_address: 'A,"B"',
     battery_details: { start_battery_level: 90, end_battery_level: 80 },
   });
-  const originalCharge = charge({ cost: 0 });
+  const originalCharge = charge({ cost: 0, address: '示例充电站' });
   const before = JSON.stringify([originalDrive, originalCharge]);
   const csv = exportCSV([originalDrive], [originalCharge], units, {
     8: { category: '个人', subcategory: '买菜', note: '=formula\n第二行' },
@@ -571,5 +571,8 @@ test('export retains source values and annotations, separates manual cost and om
   assert.equal(rows[2][14], '0');
   assert.equal(rows[2][15], 'CNY');
   assert.equal(rows[2][16], 'manual');
+  assert.deepEqual(rows[2].slice(4,6), ['示例充电站','示例充电站']);
+  const privateRows = parseCSV(exportCSV([], [originalCharge], units, {}, {}, {private:true}));
+  assert.deepEqual(privateRows[1].slice(4,6), ['','']);
   assert.equal(JSON.stringify([originalDrive, originalCharge]), before);
 });

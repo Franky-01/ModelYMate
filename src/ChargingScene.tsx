@@ -52,6 +52,8 @@ class ChargingEngine {
   private previousFrame = 0;
   private seconds = 0;
   private dirty = true;
+  private hostWidth = -1;
+  private hostHeight = -1;
   private bounds = new THREE.Box3();
   private shellMaterials: Array<{material: THREE.MeshStandardMaterial; kind: string}> = [];
   private caseMaterial = new THREE.MeshStandardMaterial({roughness: .72, metalness: .18});
@@ -81,6 +83,8 @@ class ChargingEngine {
   private pack = {width: 0, length: 0, front: 0, top: 0};
 
   constructor(private host: HTMLDivElement, private getProps: () => Props, private onPhase: (phase: Phase) => void) {
+    // Only the battery shader's time uniform changes between animation frames.
+    this.scene.matrixWorldAutoUpdate = false;
     this.renderer = new THREE.WebGLRenderer({alpha: true, antialias: true, powerPreference: 'low-power'});
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
@@ -121,8 +125,9 @@ class ChargingEngine {
       this.scene.add(model);
       this.buildBattery(audit);
       this.addShadow(audit);
-      this.sync(); this.resize();
+      this.sync(); this.resize(true);
       // Compile once before exposing the canvas, so the first visible state is complete.
+      this.scene.updateMatrixWorld(true);
       this.renderer.compile(this.scene, this.camera);
       const context = this.renderer.getContext();
       const parallel = this.renderer.extensions.get('KHR_parallel_shader_compile') as {COMPLETION_STATUS_KHR:number} | null;
@@ -251,10 +256,15 @@ class ChargingEngine {
     this.dirty = true; this.schedule();
   }
 
-  private resize() {
+  private resize(boundsChanged = false) {
     if (this.disposed) return;
-    const width = Math.max(1, this.host.clientWidth), height = Math.max(1, this.host.clientHeight);
-    this.renderer.setSize(width, height); this.camera.aspect = width / height;
+    const hostWidth = this.host.clientWidth, hostHeight = this.host.clientHeight;
+    const width = Math.max(1, hostWidth), height = Math.max(1, hostHeight);
+    if (hostWidth !== this.hostWidth || hostHeight !== this.hostHeight) {
+      this.hostWidth = hostWidth; this.hostHeight = hostHeight;
+      this.renderer.setSize(width, height);
+    } else if (!boundsChanged) return;
+    this.camera.aspect = width / height;
     const center = this.bounds.isEmpty() ? new THREE.Vector3(0, .7, 0) : this.bounds.getCenter(new THREE.Vector3());
     center.y -= .12;
     const direction = new THREE.Vector3(-7.5, 4.7, -3.3).normalize();
@@ -272,7 +282,7 @@ class ChargingEngine {
     this.dirty = true; this.schedule();
   }
 
-  private canRender() {return !this.disposed && this.ready && this.visible && !document.hidden && this.host.clientWidth > 0 && this.host.clientHeight > 0;}
+  private canRender() {return !this.disposed && this.ready && this.visible && !document.hidden && this.hostWidth > 0 && this.hostHeight > 0;}
   private animates() {const props = this.getProps(); return props.active && !this.reduced.matches && (percentage(props.soc) ?? 0) > 0;}
   private schedule() {
     if (!this.canRender()) {if (this.frame) cancelAnimationFrame(this.frame); this.frame = 0; this.previousFrame = 0; return;}
@@ -287,7 +297,10 @@ class ChargingEngine {
     this.previousFrame = time;
     if (this.animates()) this.seconds += elapsed;
     this.fillMaterial.uniforms.time.value = this.seconds;
-    try {this.renderer.render(this.scene, this.camera);}
+    try {
+      if (this.dirty) this.scene.updateMatrixWorld(true);
+      this.renderer.render(this.scene, this.camera);
+    }
     catch {this.onPhase('error'); this.dispose(); return;}
     this.dirty = false; this.schedule();
   };

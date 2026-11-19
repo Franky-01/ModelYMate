@@ -11,14 +11,17 @@ type CostGroup={actual:number|null;estimated:number|null;count:number;actualCoun
 export default function CostReportView({c,PageHeading,PeriodSelector,Card,Metric,ActivityList,HistoryLoader}:Props){
   const [period,setPeriod]=useState<number>(c.route.id??30),[placeLimit,setPlaceLimit]=useState(30),[ledgerLimit,setLedgerLimit]=useState(100);
   const today=localDay(new Date(c.clock??Date.now()));
-  const charges=useMemo(()=>periodRows(c.charges,period,new Date(c.clock??Date.now())),[c.charges,period,today]);
-  const drives=useMemo(()=>periodRows(c.drives,period,new Date(c.clock??Date.now())),[c.drives,period,today]);
+  const charges=useMemo(()=>periodRows(c.charges,period,new Date(c.clock??Date.now())),[c.charges,period,today,c.timeZone]);
+  const drives=useMemo(()=>periodRows(c.drives,period,new Date(c.clock??Date.now())),[c.drives,period,today,c.timeZone]);
   const totals=useMemo(()=>costSummary(charges,c.costs),[charges,c.costs]);
   const groups=Object.entries(totals.groups) as [string,CostGroup][];
   const driving=useMemo(()=>stats(drives,[],c.units.unit_of_length),[drives,c.units.unit_of_length]);
-  const daily=useMemo(()=>Object.fromEntries(Object.keys(totals.groups).map(currency=>[currency,dailyCostSeries(charges,c.costs,currency,period,new Date(c.clock??Date.now()))])),[charges,c.costs,totals,period,today]);
+  const daily=useMemo(()=>Object.fromEntries(Object.keys(totals.groups).map(currency=>[currency,dailyCostSeries(charges,c.costs,currency,period,new Date(c.clock??Date.now()))])),[charges,c.costs,totals,period,today,c.timeZone]);
   const places=useMemo(()=>groupedPlaces([],charges,c.aliases).map((p:any)=>({...p,cost:costSummary(p.charges,c.costs)})),[charges,c.aliases,c.costs]);
-  const ledger=useMemo(()=>charges.map((r:any)=>({...r,kind:'charge'})).sort((a:any,b:any)=>(Date.parse(b.start_date)||0)-(Date.parse(a.start_date)||0)),[charges]);
+  const ledger=useMemo(()=>charges
+    .map((record:any)=>({record,time:Date.parse(record.start_date)||0}))
+    .sort((a:{time:number},b:{time:number})=>b.time-a.time)
+    .map(({record}:{record:any})=>({...record,kind:'charge'})),[charges]);
   const complete=c.done.drives&&c.done.charges;
   const distributions=useMemo(()=>chargeDistributions(charges),[charges]);
   const drivingPrice=groups.length===1&&groups[0][1].averagePrice!==null?groups[0]:null;

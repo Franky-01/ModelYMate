@@ -6,28 +6,55 @@ export function placeName(original,aliases={},fallback=original){
 }
 
 export function filterRecords(drives,charges,journals={},costs={},aliases={},filters={}){
-  return [...drives.map(r=>({...r,kind:'drive'})),...charges.map(r=>({...r,kind:'charge'}))].filter(r=>{
-    const d=date(r.start_date),j=journals[r.drive_id]??{},cost=r.kind==='charge'?effectiveCost(r,costs):null;
-    const text=[r.start_address,r.end_address,r.address,j.note,j.category,j.subcategory,j.driver,...[r.start_address,r.end_address,r.address].map(a=>placeName(a,aliases))].join(' ').toLowerCase();
-    if(filters.kind&&filters.kind!=='all'&&r.kind!==filters.kind)return false;
-    if(filters.search&&!text.includes(filters.search.toLowerCase()))return false;
-    if(filters.start&&(!d||localDay(d)<filters.start)||filters.end&&(!d||localDay(d)>filters.end))return false;
-    if(filters.driver&&(r.kind!=='drive'||(j.driver??'')!==filters.driver))return false;
-    if(filters.category&&(r.kind!=='drive'||(j.category??'未分类')!==filters.category))return false;
-    for(const [key,value] of [['distance',r.kind==='drive'?nonNegative(r.odometer_details?.odometer_distance):null],['minutes',nonNegative(r.duration_min)]]){
-      const min=filters[key+'Min'],max=filters[key+'Max'];
-      if(min!==undefined&&min!==''&&(value===null||value<Number(min)))return false;
-      if(max!==undefined&&max!==''&&(value===null||value>Number(max)))return false;
+  const bound=value=>value===undefined||value===''?undefined:Number(value);
+  const distanceMin=bound(filters.distanceMin),distanceMax=bound(filters.distanceMax);
+  const minutesMin=bound(filters.minutesMin),minutesMax=bound(filters.minutesMax);
+  const hasDistance=distanceMin!==undefined||distanceMax!==undefined;
+  const hasMinutes=minutesMin!==undefined||minutesMax!==undefined;
+  const outOfRange=(value,min,max)=>value===null||(min!==undefined&&value<min)||(max!==undefined&&value>max);
+  const hasDates=!!(filters.start||filters.end),search=filters.search?.toLowerCase();
+  const costFilter=filters.cost&&filters.cost!=='all',chargerFilter=filters.charger&&filters.charger!=='all';
+  const byDate=!['distance','duration','energy'].includes(filters.sort);
+  const matches=[];
+  for(const [kind,records] of [['drive',drives],['charge',charges]]){
+    if(filters.kind&&filters.kind!=='all'&&filters.kind!==kind)continue;
+    if(kind==='drive'&&(costFilter||chargerFilter))continue;
+    if(kind==='charge'&&(hasDistance||filters.driver||filters.category))continue;
+    for(const row of records){
+      if(hasDistance&&outOfRange(nonNegative(row.odometer_details?.odometer_distance),distanceMin,distanceMax))continue;
+      if(hasMinutes&&outOfRange(nonNegative(row.duration_min),minutesMin,minutesMax))continue;
+      if(chargerFilter&&chargeType(row)!==filters.charger)continue;
+      if(costFilter){
+        const cost=effectiveCost(row,costs);
+        if(filters.cost==='missing'?!!cost:cost?.source!==filters.cost)continue;
+      }
+      if(search||filters.driver||filters.category){
+        const journal=journals[row.drive_id]??{};
+        if(filters.driver&&(journal.driver??'')!==filters.driver)continue;
+        if(filters.category&&(journal.category??'未分类')!==filters.category)continue;
+        if(search){
+          const addresses=[row.start_address,row.end_address,row.address];
+          const text=[...addresses,journal.note,journal.category,journal.subcategory,journal.driver,...addresses.map(a=>placeName(a,aliases))];
+          if(!text.join(' ').toLowerCase().includes(search))continue;
+        }
+      }
+      const start=byDate||hasDates?date(row.start_date):null;
+      if(hasDates){
+        if(!start)continue;
+        const day=localDay(start);
+        if(filters.start&&day<filters.start||filters.end&&day>filters.end)continue;
+      }
+      const sortValue=byDate?start?.getTime()??null:filters.sort==='distance'?nonNegative(row.odometer_details?.odometer_distance):
+        filters.sort==='duration'?nonNegative(row.duration_min):nonNegative(row.charge_energy_added);
+      matches.push({row,kind,sortValue});
     }
-    if(filters.cost&&filters.cost!=='all'&&(r.kind!=='charge'||(filters.cost==='missing'?!!cost:cost?.source!==filters.cost)))return false;
-    if(filters.charger&&filters.charger!=='all'&&(r.kind!=='charge'||chargeType(r)!==filters.charger))return false;
-    return true;
-  }).sort((a,b)=>{
-    const value=r=>filters.sort==='distance'?nonNegative(r.odometer_details?.odometer_distance):filters.sort==='duration'?nonNegative(r.duration_min):filters.sort==='energy'?nonNegative(r.charge_energy_added):(date(r.start_date)?.getTime()??null);
-    const x=value(a),y=value(b);
-    if(x===null)return y===null?0:1;if(y===null)return -1;
-    return filters.sort==='oldest'?x-y:y-x;
+  }
+  matches.sort(({sortValue:a},{sortValue:b})=>{
+    if(a===null)return b===null?0:1;
+    if(b===null)return -1;
+    return filters.sort==='oldest'?a-b:b-a;
   });
+  return matches.map(({row,kind})=>({...row,kind}));
 }
 
 export function chargeType(row){
@@ -52,12 +79,17 @@ export function chargeDistributions(charges){
 // A parking estimate requires two adjacent recorded drives with matching places.
 // Unknown edges, overlaps, missing end times and different places never become parking.
 export function parkingEstimates(drives,aliases={}){
-  const sorted=drives.filter(r=>date(r.start_date)).slice().sort((a,b)=>Date.parse(a.start_date)-Date.parse(b.start_date));
+  const sorted=[];
+  for(const row of drives){
+    const start=date(row.start_date);
+    if(start)sorted.push({row,start});
+  }
+  sorted.sort((a,b)=>a.start.getTime()-b.start.getTime());
   const result=[];
   for(let i=1;i<sorted.length;i++){
-    const previous=sorted[i-1],next=sorted[i],end=date(previous.end_date),start=date(next.start_date);
+    const {row:previous,start:previousStart}=sorted[i-1],{row:next,start}=sorted[i],end=date(previous.end_date);
     const endPlace=placeName(previous.end_address,aliases),startPlace=placeName(next.start_address,aliases);
-    if(!end||!start||!endPlace||endPlace!==startPlace||end>start||end<date(previous.start_date))continue;
+    if(!end||!endPlace||endPlace!==startPlace||end>start||end<previousStart)continue;
     const minutes=(start-end)/60000;
     if(minutes>0)result.push({place:endPlace,minutes,start:end.toISOString(),end:start.toISOString(),before:previous.drive_id,after:next.drive_id,estimated:true});
   }
